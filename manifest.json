@@ -1,0 +1,22 @@
+
+{
+  "name": "Handling",
+  "short_name": "Handling",
+  "start_url": "/Handling",
+  "display": "standalone",
+ "orientation": "portrait", 
+  "background_color": "#121212",
+  "theme_color": "#8a7322",
+  "icons": [
+    {
+      "src": "icon.svg",
+      "sizes": "512x512",
+      "type": "image/svg"
+    },
+    {
+      "src": "icon.svg",
+      "sizes": "512x512",
+      "type": "image/svg"
+    }
+  ] }
+
