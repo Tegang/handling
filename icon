@@ -1,0 +1,43 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <defs>
+    <!-- Bakgrundsgradient -->
+    <linearGradient id="bgGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#34495e" />
+      <stop offset="100%" stop-color="#1a252f" />
+    </linearGradient>
+    
+    <!-- Skuggeffekt -->
+    <filter id="dropShadow" x="-10%" y="-10%" width="130%" height="130%">
+      <feDropShadow dx="0" dy="12" stdDeviation="16" flood-color="#000000" flood-opacity="0.35"/>
+    </filter>
+  </defs>
+
+  <!-- Rundad app-bakgrund (för iOS / Android / PWA) -->
+  <rect width="512" height="512" rx="115" fill="url(#bgGrad)" />
+
+  <!-- Varuvagn med skugga -->
+  <g filter="url(#dropShadow)" transform="translate(16, 12)">
+    <!-- Varor i vagnen -->
+    <path d="M190 190 L240 120 L290 190 Z" fill="#28a745" /> <!-- Grön vara -->
+    <circle cx="310" cy="165" r="32" fill="#ff9500" /> <!-- Orange frukt -->
+    <rect x="225" y="145" width="55" height="50" rx="8" fill="#1a73e8" /> <!-- Blå förpackning -->
+
+    <!-- Vagnens korg (nätmönster & linjer) -->
+    <path d="M140 200 L370 200 L340 320 L170 320 Z" fill="#ffffff" opacity="0.15" />
+    <path d="M135 190 L380 190 L345 330 C342 340 330 345 320 345 L180 345 C170 345 158 340 155 330 L115 130 L70 130" 
+          fill="none" stroke="#ffffff" stroke-width="22" stroke-linecap="round" stroke-linejoin="round" />
+
+    <!-- Gallerlinjer i vagnen -->
+    <path d="M170 240 L362 240 M180 290 L350 290 M230 190 L220 340 M290 190 L290 340" 
+          stroke="#ffffff" stroke-width="12" stroke-linecap="round" opacity="0.8" />
+
+    <!-- Rött handtag -->
+    <path d="M65 130 L110 130" stroke="#e10011" stroke-width="26" stroke-linecap="round" />
+
+    <!-- Hjul (Svarta & Röda detaljer) -->
+    <circle cx="195" cy="390" r="28" fill="#ffffff" />
+    <circle cx="195" cy="390" r="16" fill="#e10011" />
+    <circle cx="315" cy="390" r="28" fill="#ffffff" />
+    <circle cx="315" cy="390" r="16" fill="#e10011" />
+  </g>
+</svg>
