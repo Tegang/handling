@@ -1,0 +1,46 @@
+<!DOCTYPE html>
+<html translate="no" class="notranslate">
+<head>
+  <base target="_top">
+
+  <!-- Hämta versionsnummer och app-URL från servern -->
+  <script>
+    window.APP_VERSION_STR = "<?!= appVersion ?>";
+    window.SCRIPT_URL_STR = "<?!= scriptUrl ?>";
+  </script>
+
+  <!-- Läs in stilmallen (CSS) -->
+  <?!= include('Styles'); ?>
+
+  <!-- Läs in generellt JavaScript -->
+  <?!= include('JavaScript'); ?>
+</head>
+<body>
+
+  <!-- Global Laddnings-spinner -->
+  <div id="loadingOverlay">
+    <div class="spinner"></div>
+  </div>
+
+  <!-- Globalt Modalt Fönster (Alert / Confirm) -->
+  <div id="customModal" class="modal-backdrop" style="display: none;">
+    <div class="modal-box">
+      <h3 id="modalTitle">Meddelande</h3>
+      <p id="modalMessage"></p>
+      <div id="modalButtons" class="modal-buttons"></div>
+    </div>
+  </div>
+
+  <!-- TOPPRAD -->
+  <header class="app-header card">
+    <button class="header-btn" onclick="openSideNav()" title="Meny">☰</button>
+    <h1 class="header-title">🛒 Handling</h1>
+    <button class="header-btn" onclick="openSettingsModal()" title="Inställningar">⚙️</button>
+  </header>
+
+  <!-- Läs in huvudvyn och dess tillhörande klient-skript -->
+  <?!= include('viewHandling'); ?>
+  <?!= include('klientHandling'); ?>
+
+</body>
+</html>

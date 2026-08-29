@@ -1,0 +1,394 @@
+<!-- Lägesväljare längst upp (Listor först) -->
+<div id="modeSwitcherCard" class="mode-switcher card">
+  <button id="btnModeLists" class="mode-btn" onclick="setAppMode('lists')">📋 Listor</button>
+  <button id="btnModePrep" class="mode-btn active" onclick="setAppMode('prep')">📝 Förbereda</button>
+  <button id="btnModeShop" class="mode-btn" onclick="setAppMode('shop')">🛒 Handla</button>
+</div>
+
+<!-- Aktiv Lista Indikator -->
+<div id="activeListHeader" class="card" style="padding: 10px 15px; display: flex; justify-content: space-between; align-items: center;">
+  <span style="font-size: 14px; color: #666;">Vald lista: <strong id="activeListNameDisplay" style="color: #2c3e50; font-size: 15px;">...</strong></span>
+</div>
+
+<!-- Butiksväljare med Custom Picker Knapp -->
+<div id="storeSection" class="card" style="display: none; padding: 12px 15px;">
+  <div style="display: flex; align-items: center; gap: 10px;">
+    <label style="font-weight: bold; font-size: 14px; white-space: nowrap; color: #333;">🏪 Butik:</label>
+    <button type="button" id="btnOpenStorePicker" onclick="openStorePickerModal()" style="flex: 1; padding: 10px 12px; border: 1px solid #ccc; border-radius: 8px; font-size: 15px; font-weight: bold; color: #1a73e8; background: white; text-align: left; display: flex; justify-content: space-between; align-items: center; cursor: pointer;">
+      <span id="selectedStoreBtnText">Välj butik...</span>
+      <span style="font-size: 12px; color: #888;">▼</span>
+    </button>
+  </div>
+</div>
+
+<!-- Förbereda-sektionen -->
+<div id="prepSection" class="card" style="padding: 10px 15px;">
+  <div style="display: flex; gap: 10px;">
+    <button onclick="openAddItemModal()" style="flex: 1; padding: 12px 8px; font-size: 15px; white-space: nowrap; background: #28a745;">+ Lägg till vara</button>
+    <label class="file-btn" style="flex: 1; padding: 12px 8px; font-size: 15px; white-space: nowrap; text-align: center; background: #1a73e8;">
+      📷 Fota tavla (AI)
+      <input type="file" id="cameraInput" accept="image/*" capture="environment" onchange="uploadImage(this)">
+    </label>
+  </div>
+</div>
+
+<!-- Handlingslistan -->
+<div id="shoppingListCard" class="card">
+  <div id="shoppingList"></div>
+</div>
+
+<!-- Listor Administration -->
+<div id="listsSection" class="card" style="display: none;">
+  <div class="input-group" style="display: flex; gap: 8px; align-items: center;">
+    <input type="text" id="newListNameInput" placeholder="Namn på ny lista..." style="min-width: 0; flex: 1;">
+    <button onclick="addListManual()" style="background: #28a745; white-space: nowrap; padding: 12px 14px; font-size: 15px; flex-shrink: 0;">Skapa lista</button>
+  </div>
+  <hr style="border: 0; border-top: 1px solid #eee; margin: 15px 0;">
+  <div id="allListsContainer"></div>
+</div>
+
+<!-- BUTIKSHANTERING VY -->
+<div id="storesAdminSection" class="card" style="display: none;">
+  <div id="storesListView">
+    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
+      <h3 style="margin: 0; color: #2c3e50; font-size: 18px;">🏪 Hantera Butiker</h3>
+      <button onclick="openEditStoreModal()" style="padding: 8px 12px; font-size: 13px; background: #28a745;">+ Ny butik</button>
+    </div>
+    <div id="storesAdminList"></div>
+  </div>
+
+  <div id="storeDeptSortView" style="display: none;">
+    <div style="border-bottom: 1px solid #eee; padding-bottom: 10px; margin-bottom: 12px;">
+      <div style="display: flex; justify-content: space-between; align-items: center; gap: 6px;">
+        <button class="secondary" onclick="closeStoreDeptSort()" style="padding: 6px 10px; font-size: 13px; white-space: nowrap;">← Tillbaka</button>
+        <h3 style="margin: 0; color: #2c3e50; font-size: 16px; text-align: center; flex: 1; white-space: nowrap;">Avdelningsordning</h3>
+        <button id="btnSaveDeptOrder" disabled onclick="saveStoreDepartmentOrderAction()" style="padding: 6px 14px; font-size: 13px; white-space: nowrap; background: #28a745;">Spara</button>
+      </div>
+      <div id="sortStoreSubtitle" style="font-size: 14px; font-weight: 600; color: #666; margin-top: 6px; text-align: center;"></div>
+    </div>
+    <p style="font-size: 13px; color: #666; margin-bottom: 12px;">Flytta avdelningarna med piltangenterna i den ordning du passerar dem i butiken:</p>
+    <div id="deptSortContainer"></div>
+  </div>
+</div>
+
+<!-- AVDELNINGSHANTERING VY -->
+<div id="avdAdminSection" class="card" style="display: none;">
+  <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
+    <h3 style="margin: 0; color: #2c3e50; font-size: 18px;">📂 Hantera Avdelningar</h3>
+    <button onclick="openEditAvdModal()" style="padding: 8px 12px; font-size: 13px; background: #28a745;">+ Ny avdelning</button>
+  </div>
+  <p style="font-size: 13px; color: #666; margin-bottom: 12px;">
+    Här kan du skapa och ändra namn på avdelningar i systemet.
+  </p>
+  <div id="avdAdminList"></div>
+</div>
+
+<!-- VARUDATABAS VY -->
+<div id="varorAdminSection" class="card" style="display: none;">
+  <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
+    <h3 style="margin: 0; color: #2c3e50; font-size: 18px;">📦 Varudatabas</h3>
+    <button onclick="openEditMasterVaraModal()" style="padding: 8px 12px; font-size: 13px; background: #28a745;">+ Ny vara</button>
+  </div>
+  <div style="margin-bottom: 12px;">
+    <input type="text" id="varorSearchInput" oninput="onVarorSearch(this.value)" placeholder="🔍 Sök vara i databasen..." style="width: 100%; padding: 10px; border: 1px solid #ccc; border-radius: 8px; font-size: 15px;">
+  </div>
+  <div id="varorAdminList"></div>
+</div>
+
+<!-- SIDOMENY -->
+<div id="sideNavBackdrop" class="sidenav-backdrop" onclick="closeSideNav()"></div>
+<div id="sideNavDrawer" class="sidenav-drawer">
+  <div class="sidenav-header">
+    <h3>Meny</h3>
+    <button class="close-nav-btn" onclick="closeSideNav()">✕</button>
+  </div>
+  <div class="sidenav-menu">
+    <button class="sidenav-item active" id="navItemApp" onclick="navToSection('app')">🛒 Handling</button>
+    <div class="sidenav-divider"></div>
+    <div class="sidenav-section-title">ADMINISTRATION</div>
+    <button class="sidenav-item" id="navItemStores" onclick="navToSection('stores')">🏪 Butiker</button>
+    <button class="sidenav-item" id="navItemAvd" onclick="navToSection('avd')">📂 Avdelningar</button>
+    <button class="sidenav-item" id="navItemVaror" onclick="navToSection('varor')">📦 Varudatabas</button>
+  </div>
+</div>
+
+<!-- INSTÄLLNINGAR -->
+<div id="settingsModal" class="modal-backdrop" style="display: none;">
+  <div class="modal-box" style="text-align: left; max-width: 360px;">
+    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px; border-bottom: 1px solid #eee; padding-bottom: 10px;">
+      <h3 style="margin: 0; font-size: 19px; color: #2c3e50;">⚙️ Inställningar</h3>
+      <button onclick="closeSettingsModal()" style="background: transparent; border: none; font-size: 20px; color: #888; cursor: pointer; padding: 0;">✕</button>
+    </div>
+    <div style="margin-bottom: 15px;">
+      <label style="font-weight: bold; font-size: 14px; display: block; margin-bottom: 6px; color: #444;">Standardbutik vid start:</label>
+      <button type="button" id="btnOpenDefaultStorePicker" onclick="openStorePickerModal('SETTINGS')" style="width: 100%; padding: 10px; border: 1px solid #ccc; border-radius: 8px; font-size: 15px; font-weight: bold; color: #333; background: white; text-align: left; display: flex; justify-content: space-between; align-items: center; cursor: pointer;">
+        <span id="defaultStoreBtnText">Välj butik...</span>
+        <span style="font-size: 12px; color: #888;">▼</span>
+      </button>
+    </div>
+    <div style="margin-bottom: 20px;">
+      <label style="font-weight: bold; font-size: 14px; display: block; margin-bottom: 6px; color: #444;">Bakgrund / Tema:</label>
+      <select id="themeSelect" onchange="onThemeChange(this.value)" style="width: 100%; padding: 10px; border-radius: 8px; border: 1px solid #ccc; font-size: 15px;">
+        <option value="light">☀️ Ljust tema (Vit)</option>
+        <option value="dark">🌙 Mörkt tema (Svart)</option>
+      </select>
+    </div>
+    <div style="border-top: 1px solid #eee; padding-top: 15px; text-align: center;">
+      <button class="secondary" style="width: 100%; padding: 10px; font-size: 14px;" onclick="openOmModal()">ℹ️ Om appen</button>
+    </div>
+  </div>
+</div>
+
+<!-- MODALT FÖNSTER FÖR "OM APPEN & HJÄLP" -->
+<div id="omModal" class="modal-backdrop" style="display: none;">
+  <div class="modal-box" style="text-align: left; max-width: 380px; padding: 18px;">
+    
+    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; border-bottom: 1px solid #eee; padding-bottom: 8px;">
+      <div style="display: flex; gap: 8px;">
+        <button id="btnOmTabInfo" onclick="switchOmTab('info')" style="padding: 6px 12px; font-size: 13px; background: #2c3e50; color: white; border: none; border-radius: 6px; font-weight: bold;">ℹ️ Om</button>
+        <button id="btnOmTabHelp" onclick="switchOmTab('help')" style="padding: 6px 12px; font-size: 13px; background: #f0f0f5; color: #333; border: none; border-radius: 6px; font-weight: bold;">📖 Hjälp</button>
+      </div>
+      <button onclick="closeOmModal()" style="background: transparent; border: none; font-size: 20px; color: #888; cursor: pointer; padding: 0;">✕</button>
+    </div>
+
+    <!-- FLIK 1: OM APPEN -->
+    <div id="omTabInfoContent" class="om-card" style="text-align: center;">
+      <h2 style="margin-top: 5px; margin-bottom: 8px; font-size: 22px;">🛒 Handling</h2>
+      <p style="font-size: 14px; color: #666; margin-bottom: 15px; line-height: 1.4;">
+        Personlig webbapplikation för smidig hantering av handlingslistor, butiker och avdelningar.
+      </p>
+      <div class="om-version-box" style="background: #f0f0f5; padding: 10px; border-radius: 8px; text-align: center;">
+        <div style="font-size: 13px; margin-bottom: 4px; opacity: 0.7;">Senast uppdaterad:</div>
+        <div id="omVersionText" style="font-weight: bold; font-size: 15px; color: #e10011;"></div>
+      </div>
+      <div style="margin-top: 16px; text-align: center;">
+        <div style="font-size: 12px; margin-bottom: 8px; opacity: 0.7;">Skanna för att öppna appen:</div>
+        <div style="background: #ffffff; padding: 10px 12px; display: inline-block; border-radius: 10px; box-shadow: 0 4px 10px rgba(0,0,0,0.15); border: 1px solid #eee;">
+          <img id="qrCodeImg" alt="QR-kod" style="width: 135px; height: 135px; display: block; margin: 0 auto 6px auto;">
+          <a href="https://tegang.github.io/Handling" target="_blank" style="font-size: 11px; font-weight: 600; color: #555; text-decoration: none; display: block; word-break: break-all;">
+            https://tegang.github.io/Handling
+          </a>
+        </div>
+      </div>
+    </div>
+
+    <!-- FLIK 2: HJÄLP & SNABBGUIDE -->
+    <div id="omTabHelpContent" style="display: none; max-height: 380px; overflow-y: auto; font-size: 14px; color: #333; line-height: 1.5; padding-right: 4px;">
+      <h4 style="margin: 0 0 6px 0; color: #2c3e50; font-size: 15px;">📋 1. Listor</h4>
+      <p style="margin: 0 0 10px 0; color: #555;">Skapa och växla mellan olika handlingslistor (t.ex. Mat, Bygg, Fest).</p>
+
+      <h4 style="margin: 0 0 6px 0; color: #2c3e50; font-size: 15px;">📝 2. Förbereda</h4>
+      <p style="margin: 0 0 4px 0; color: #555;">• <strong>+ Lägg till vara</strong>: Välj från databasen eller skapa ny.</p>
+      <p style="margin: 0 0 4px 0; color: #555;">• <strong>✏️ Redigera</strong>: Ändra antal, extra info eller ta foto 📷.</p>
+      <p style="margin: 0 0 4px 0; color: #555;">• <strong>Byt avdelning</strong>: Klicka på avdelnings-badgen på varan.</p>
+      <p style="margin: 0 0 10px 0; color: #555;">• <strong>📷 Fota tavla (AI)</strong>: Läser av handskrivna tavlor/listor automatiskt.</p>
+
+      <h4 style="margin: 0 0 6px 0; color: #2c3e50; font-size: 15px;">🛒 3. Handla i butiken</h4>
+      <p style="margin: 0 0 4px 0; color: #555;">• Välj din butik – varorna sorteras automatiskt i den ordning du passerar avdelningarna!</p>
+      <p style="margin: 0 0 4px 0; color: #555;">• Bocka av varor när du lägger dem i vagnen.</p>
+      <p style="margin: 0 0 10px 0; color: #555;">• Klicka på bildtummen för att se förpackningen i storformat.</p>
+
+      <h4 style="margin: 0 0 6px 0; color: #2c3e50; font-size: 15px;">⚙️ 4. Inställningar & Meny</h4>
+      <p style="margin: 0; color: #555;">I sidomenyn (☰) kan du skapa nya butiker, ställa in avdelningsordning och byta mörkt/ljust tema.</p>
+    </div>
+
+  </div>
+</div>
+
+<!-- MODALT FÖNSTER FÖR BUTIK -->
+<div id="storeModal" class="modal-backdrop" style="display: none;">
+  <div class="modal-box" style="text-align: left; max-width: 360px;">
+    <h3 id="storeModalTitle" style="margin-top: 0; margin-bottom: 15px; color: #2c3e50;">Ny butik</h3>
+    <div style="margin-bottom: 12px;">
+      <label style="font-weight: bold; font-size: 14px; display: block; margin-bottom: 4px; color: #444;">
+        Butiksnamn <span style="color:#e10011;">*</span>
+      </label>
+      <input type="text" id="storeModalName" placeholder="t.ex. ICA Kvantum" style="width: 100%; padding: 10px; border: 1px solid #ccc; border-radius: 8px; font-size: 15px;">
+    </div>
+    <div style="margin-bottom: 20px;">
+      <label style="font-weight: bold; font-size: 14px; display: block; margin-bottom: 4px; color: #444;">
+        Butiksplats / Ort <span style="color:#e10011;">*</span>
+      </label>
+      <input type="text" id="storeModalPlats" placeholder="t.ex. Liljeholmen" style="width: 100%; padding: 10px; border: 1px solid #ccc; border-radius: 8px; font-size: 15px;">
+    </div>
+    <div class="modal-buttons">
+      <button class="secondary" onclick="closeStoreModal()">Avbryt</button>
+      <button onclick="saveStoreFromModal()" style="background: #28a745;">Spara</button>
+    </div>
+  </div>
+</div>
+
+<!-- MODALT FÖNSTER FÖR AVDELNING -->
+<div id="avdModal" class="modal-backdrop" style="display: none;">
+  <div class="modal-box" style="text-align: left; max-width: 360px;">
+    <h3 id="avdModalTitle" style="margin-top: 0; margin-bottom: 15px; color: #2c3e50;">Ny avdelning</h3>
+    <div style="margin-bottom: 20px;">
+      <label style="font-weight: bold; font-size: 14px; display: block; margin-bottom: 4px; color: #444;">
+        Avdelningsnamn <span style="color:#e10011;">*</span>
+      </label>
+      <input type="text" id="avdModalName" placeholder="t.ex. Mejeri & Ost" style="width: 100%; padding: 10px; border: 1px solid #ccc; border-radius: 8px; font-size: 15px;">
+    </div>
+    <div class="modal-buttons">
+      <button class="secondary" onclick="closeAvdModal()">Avbryt</button>
+      <button onclick="saveAvdFromModal()" style="background: #28a745;">Spara</button>
+    </div>
+  </div>
+</div>
+
+<!-- MODALT FÖNSTER FÖR VARUDATABAS -->
+<div id="varorModal" class="modal-backdrop" style="display: none;">
+  <div class="modal-box" style="text-align: left; max-width: 360px;">
+    <h3 id="varorModalTitle" style="margin-top: 0; margin-bottom: 15px; color: #2c3e50;">Ny vara</h3>
+    <div style="margin-bottom: 12px;">
+      <label style="font-weight: bold; font-size: 14px; display: block; margin-bottom: 4px; color: #444;">
+        Varunamn <span style="color:#e10011;">*</span>
+      </label>
+      <input type="text" id="varorModalName" placeholder="t.ex. Havredryck" style="width: 100%; padding: 10px; border: 1px solid #ccc; border-radius: 8px; font-size: 15px;">
+    </div>
+    <div style="margin-bottom: 12px;">
+      <label style="font-weight: bold; font-size: 14px; display: block; margin-bottom: 4px; color: #444;">
+        Standardavdelning
+      </label>
+      <button type="button" id="btnOpenVarorAvdPicker" onclick="openDeptPickerModal('MASTER_VARA')" style="width: 100%; padding: 10px 12px; border: 1px solid #ccc; border-radius: 8px; font-size: 15px; font-weight: bold; color: #333; background: white; text-align: left; display: flex; justify-content: space-between; align-items: center; cursor: pointer;">
+        <span id="varorModalAvdBtnText">Övrigt</span>
+        <span style="font-size: 12px; color: #888;">▼</span>
+      </button>
+    </div>
+    <div style="margin-bottom: 20px;">
+      <label style="font-weight: bold; font-size: 14px; display: block; margin-bottom: 4px; color: #444;">
+        Standardenhet
+      </label>
+      <button type="button" id="btnOpenVarorEnhetPicker" onclick="openUnitPickerModal('MASTER_VARA')" style="width: 100%; padding: 10px 12px; border: 1px solid #ccc; border-radius: 8px; font-size: 15px; font-weight: bold; color: #333; background: white; text-align: left; display: flex; justify-content: space-between; align-items: center; cursor: pointer;">
+        <span id="varorModalEnhetBtnText">(Ingen enhet)</span>
+        <span style="font-size: 12px; color: #888;">▼</span>
+      </button>
+    </div>
+    <div class="modal-buttons">
+      <button class="secondary" onclick="closeVarorModal()">Avbryt</button>
+      <button onclick="saveMasterVaraFromModal()" style="background: #28a745;">Spara</button>
+    </div>
+  </div>
+</div>
+
+<!-- MODALT FÖNSTER FÖR REDIGERA VARA I LISTA -->
+<div id="editItemModal" class="modal-backdrop" style="display: none;">
+  <div class="modal-box" style="text-align: left; max-width: 360px;">
+    <h3 id="editItemModalTitle" style="margin-top: 0; margin-bottom: 15px; color: #2c3e50;">Lägg till vara</h3>
+    
+    <div id="selectVaraGroup" style="margin-bottom: 12px;">
+      <label style="font-weight: bold; font-size: 14px; display: block; margin-bottom: 4px; color: #444;">
+        Vara <span style="color:#e10011;">*</span>
+      </label>
+      <button type="button" id="btnOpenVaraPicker" onclick="openVaraPickerModal()" style="width: 100%; padding: 12px; border: 1px solid #ccc; border-radius: 8px; font-size: 15px; font-weight: bold; color: #1a73e8; background: white; text-align: left; display: flex; justify-content: space-between; align-items: center; cursor: pointer;">
+        <span id="selectedVaraBtnText">-- Välj vara från databasen --</span>
+        <span style="font-size: 12px; color: #888;">▼</span>
+      </button>
+    </div>
+
+    <div id="newVaraFieldsGroup" style="display: none; border-left: 3px solid #e10011; padding: 10px; margin-bottom: 12px; background: #fff8f8; border-radius: 6px;">
+      <label style="font-weight: bold; font-size: 13px; display: block; margin-bottom: 4px; color: #444;">
+        Varunamn <span style="color:#e10011;">*</span>
+      </label>
+      <input type="text" id="editItemNameInput" placeholder="t.ex. Mellanmjölk" style="width: 100%; padding: 10px; border: 1px solid #ccc; border-radius: 8px; font-size: 15px;">
+    </div>
+
+    <div style="margin-bottom: 12px;">
+      <label style="font-weight: bold; font-size: 14px; display: block; margin-bottom: 4px; color: #444;">
+        Extra information
+      </label>
+      <input type="text" id="editItemInfoInput" placeholder="t.ex. Arla, Ekologisk" style="width: 100%; padding: 10px; border: 1px solid #ccc; border-radius: 8px; font-size: 15px;">
+    </div>
+
+    <div style="margin-bottom: 15px;">
+      <label style="font-weight: bold; font-size: 14px; display: block; margin-bottom: 4px; color: #444;">
+        Antal
+      </label>
+      <div style="display: flex; align-items: center; gap: 10px;">
+        <input type="text" id="editItemAntalInput" placeholder="t.ex. 2" style="width: 90px; padding: 10px; border: 1px solid #ccc; border-radius: 8px; font-size: 15px;">
+        <span id="editItemUnitDisplay" style="font-weight: bold; font-size: 14px; color: #444;"></span>
+      </div>
+    </div>
+
+    <div style="margin-bottom: 15px;">
+      <div style="display: flex; align-items: center; justify-content: space-between; gap: 8px;">
+        <label style="font-weight: bold; font-size: 14px; color: #444; white-space: nowrap;">
+          Foto på varan:
+        </label>
+        <button type="button" style="flex: 1; padding: 10px; font-size: 14px; background: #1a73e8; color: white; border: none; border-radius: 8px; font-weight: bold; cursor: pointer;" onclick="triggerVaraCamera()">📷 Ta foto</button>
+        <button type="button" id="btnDeleteVaraPhoto" style="display: none; padding: 10px 14px; font-size: 15px; background: #e10011; color: white; border: none; border-radius: 8px; font-weight: bold; cursor: pointer;" onclick="deleteVaraPhotoAction()" title="Ta bort fotot">🗑️</button>
+      </div>
+      <input type="file" id="varaCameraInput" accept="image/*" capture="environment" style="display: none;" onchange="onVaraPhotoCaptured(this)">
+    </div>
+
+    <div class="modal-buttons">
+      <button class="secondary" onclick="closeEditItemModal()">Avbryt</button>
+      <button onclick="saveItemFromModal()" style="background: #28a745;">Spara</button>
+    </div>
+  </div>
+</div>
+
+<!-- MODALT FÖNSTER FÖR BILDVISNING -->
+<div id="imagePreviewModal" class="modal-backdrop" style="display: none; z-index: 10010;" onclick="closeImagePreviewModal()">
+  <div class="modal-box" style="text-align: center; max-width: 380px; padding: 16px;" onclick="event.stopPropagation();">
+    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; border-bottom: 1px solid #eee; padding-bottom: 6px;">
+      <h3 id="imagePreviewTitle" style="margin: 0; font-size: 18px; color: #2c3e50;">Varubild</h3>
+      <button onclick="closeImagePreviewModal()" style="background: transparent; border: none; font-size: 20px; color: #888; cursor: pointer;">✕</button>
+    </div>
+    <div style="margin-bottom: 15px;">
+      <img id="imagePreviewTag" src="" alt="Varubild" style="width: 100%; max-height: 350px; object-fit: contain; border-radius: 10px; border: 1px solid #ddd;">
+    </div>
+    <button class="secondary" style="width: 100%; padding: 12px;" onclick="closeImagePreviewModal()">Stäng</button>
+  </div>
+</div>
+
+<!-- EGEN VARUVÄLJARE -->
+<div id="varaPickerModal" class="modal-backdrop" style="display: none; z-index: 10005;">
+  <div class="modal-box" style="text-align: left; max-width: 380px; max-height: 85vh; display: flex; flex-direction: column; padding: 16px;">
+    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; border-bottom: 1px solid #eee; padding-bottom: 8px;">
+      <h3 style="margin: 0; font-size: 18px; color: #2c3e50;">Välj vara</h3>
+      <button onclick="closeVaraPickerModal()" style="background: transparent; border: none; font-size: 20px; color: #888; cursor: pointer; padding: 0;">✕</button>
+    </div>
+    <div style="margin-bottom: 10px;">
+      <input type="text" id="pickerSearchInput" oninput="filterVaraPickerList(this.value)" placeholder="🔍 Sök vara..." style="width: 100%; padding: 10px; border: 1px solid #ccc; border-radius: 8px; font-size: 15px;">
+    </div>
+    <div id="pickerListContainer" style="flex: 1; overflow-y: auto; border: 1px solid #e0e0e0; border-radius: 8px; max-height: 55vh;">
+    </div>
+  </div>
+</div>
+
+<!-- EGEN BUTIKSVÄLJARE -->
+<div id="storePickerModal" class="modal-backdrop" style="display: none; z-index: 10005;">
+  <div class="modal-box" style="text-align: left; max-width: 380px; max-height: 85vh; display: flex; flex-direction: column; padding: 16px;">
+    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; border-bottom: 1px solid #eee; padding-bottom: 8px;">
+      <h3 style="margin: 0; font-size: 18px; color: #2c3e50;">🏪 Välj butik</h3>
+      <button onclick="closeStorePickerModal()" style="background: transparent; border: none; font-size: 20px; color: #888; cursor: pointer; padding: 0;">✕</button>
+    </div>
+    <div id="storePickerListContainer" style="flex: 1; overflow-y: auto; border: 1px solid #e0e0e0; border-radius: 8px; max-height: 55vh;">
+    </div>
+  </div>
+</div>
+
+<!-- EGEN AVDELNINGSVÄLJARE -->
+<div id="deptPickerModal" class="modal-backdrop" style="display: none; z-index: 10006;">
+  <div class="modal-box" style="text-align: left; max-width: 380px; max-height: 85vh; display: flex; flex-direction: column; padding: 16px;">
+    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; border-bottom: 1px solid #eee; padding-bottom: 8px;">
+      <h3 style="margin: 0; font-size: 18px; color: #2c3e50;">📂 Välj avdelning</h3>
+      <button onclick="closeDeptPickerModal()" style="background: transparent; border: none; font-size: 20px; color: #888; cursor: pointer; padding: 0;">✕</button>
+    </div>
+    <p id="deptPickerSubtitle" style="font-size: 13px; color: #666; margin-top: 0; margin-bottom: 10px; display: none;"></p>
+    <div id="deptPickerListContainer" style="flex: 1; overflow-y: auto; border: 1px solid #e0e0e0; border-radius: 8px; max-height: 55vh;">
+    </div>
+  </div>
+</div>
+
+<!-- EGEN ENHETSVÄLJARE -->
+<div id="unitPickerModal" class="modal-backdrop" style="display: none; z-index: 10006;">
+  <div class="modal-box" style="text-align: left; max-width: 380px; max-height: 85vh; display: flex; flex-direction: column; padding: 16px;">
+    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; border-bottom: 1px solid #eee; padding-bottom: 8px;">
+      <h3 style="margin: 0; font-size: 18px; color: #2c3e50;">📏 Välj enhet</h3>
+      <button onclick="closeUnitPickerModal()" style="background: transparent; border: none; font-size: 20px; color: #888; cursor: pointer; padding: 0;">✕</button>
+    </div>
+    <div id="unitPickerListContainer" style="flex: 1; overflow-y: auto; border: 1px solid #e0e0e0; border-radius: 8px; max-height: 55vh;">
+    </div>
+  </div>
+</div>

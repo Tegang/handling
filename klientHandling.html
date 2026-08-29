@@ -1,0 +1,2016 @@
+<script>
+  let currentList = [];
+  let allStores = [];
+  let allShoppingLists = [];
+  let allDepartments = [];
+  let allUnits = [];
+  let currentMode = localStorage.getItem('app_mode') || 'lists';
+  let selectedStoreId = localStorage.getItem('selected_store') || '1';
+  let selectedListId = localStorage.getItem('selected_list_id') || '';
+  let currentNavSection = 'app';
+  let masterVarorMap = {};
+
+  // Variabler för butikshantering
+  let currentEditingButikId = '';
+  let activeSortingButikId = null;
+  let currentStoreDepts = [];
+  let isDeptOrderChanged = false;
+  let initialDeptOrder = [];
+
+  // Variabler för varuredigering i lista & avdelningsändring
+  let currentEditingHandlaId = '';
+  let currentDeptHandlaId = '';
+  let currentDeptVaraNamn = '';
+  let chosenVaraFromPicker = '';
+
+  // Väljarvariabler
+  let storePickerContext = '';
+  let deptPickerContext = '';
+  let selectedAvdIdForMaster = '0';
+  let selectedEnhetIdForMaster = '';
+
+  // Variabler för Avdelningar
+  let currentEditingAvdId = '';
+  let originalAvdNamn = '';
+
+  // Variabler för Varudatabas
+  let allMasterVarorList = [];
+  let currentEditingMasterVaraId = '';
+  let originalMasterVaraNamn = '';
+
+  let isDeferredDataLoaded = false;
+
+  window.onload = function() {
+    applySavedTheme();
+    initAppBoot();
+  };
+
+  function initAppBoot() {
+    // 1. Läs från localStorage i mobilen för OMEDELBAR START (0.5 sekunder!)
+    const cachedDataStr = localStorage.getItem('app_data_cache_v3');
+    let hasLocalCache = false;
+
+    if (cachedDataStr) {
+      try {
+        const cachedData = JSON.parse(cachedDataStr);
+        applyFastInitialData(cachedData);
+        hasLocalCache = true;
+      } catch(e) {}
+    }
+
+    if (!hasLocalCache) {
+      showLoading(true);
+    }
+
+    // 2. Hämta färska ändringar från servern i bakgrunden (Fas 1)
+    google.script.run
+      .withSuccessHandler(function(appData) {
+        if (appData) {
+          localStorage.setItem('app_data_cache_v3', JSON.stringify(appData));
+          applyFastInitialData(appData);
+        }
+        showLoading(false);
+
+        // 3. Hämta varudatabas och avdelningar tyst i bakgrunden (Fas 2)
+        loadDeferredDataInBackground();
+      })
+      .withFailureHandler(function(err) {
+        showLoading(false);
+        if (!hasLocalCache) handleError(err);
+      })
+      .getFastInitialAppData(selectedStoreId, selectedListId);
+  }
+
+  function applyFastInitialData(appData) {
+    allShoppingLists = appData.lists || [];
+    allStores = appData.stores || [];
+    currentList = appData.items || [];
+
+    let foundSaved = false;
+    if (selectedListId) {
+      foundSaved = allShoppingLists.some(l => l.listaId === selectedListId);
+    }
+
+    if (!foundSaved) {
+      if (allShoppingLists.length > 0) {
+        selectedListId = allShoppingLists[0].listaId;
+        localStorage.setItem('selected_list_id', selectedListId);
+      } else {
+        selectedListId = '';
+        localStorage.removeItem('selected_list_id');
+      }
+    }
+
+    populateStoreSelectUI();
+    updateActiveListHeader();
+    renderListsUI();
+    
+    if (currentNavSection === 'app') {
+      sortAndRenderLocalList();
+    }
+  }
+
+  function loadDeferredDataInBackground() {
+    google.script.run
+      .withSuccessHandler(function(deferredData) {
+        if (deferredData) {
+          allDepartments = deferredData.departments || [];
+          allUnits = deferredData.units || [];
+          masterVarorMap = deferredData.masterVaror || {};
+          isDeferredDataLoaded = true;
+        }
+      })
+      .getDeferredAppData();
+  }
+
+  function refreshActiveViewUI() {
+    if (currentNavSection === 'app') {
+      setAppMode(currentMode);
+    } else if (currentNavSection === 'stores') {
+      renderStoresAdminList();
+    } else if (currentNavSection === 'avd') {
+      renderAvdAdminList();
+    } else if (currentNavSection === 'varor') {
+      loadVarorAdminUI();
+    }
+  }
+
+  // --- EGEN BUTIKSVÄLJARE ---
+
+  function populateStoreSelectUI() {
+    const btnText = document.getElementById('selectedStoreBtnText');
+    const defaultBtnText = document.getElementById('defaultStoreBtnText');
+
+    const currentStore = allStores.find(st => String(st.butikId) === String(selectedStoreId));
+    const storeName = currentStore ? currentStore.butikNamn : (allStores.length > 0 ? allStores[0].butikNamn : 'Inga butiker finns');
+
+    if (btnText) btnText.innerText = storeName;
+    if (defaultBtnText) defaultBtnText.innerText = storeName;
+  }
+
+  function openStorePickerModal(context = '') {
+    storePickerContext = context;
+    renderStorePickerList();
+    const modal = document.getElementById('storePickerModal');
+    if (modal) modal.style.display = 'flex';
+  }
+
+  function closeStorePickerModal() {
+    const modal = document.getElementById('storePickerModal');
+    if (modal) modal.style.display = 'none';
+  }
+
+  function renderStorePickerList() {
+    const container = document.getElementById('storePickerListContainer');
+    if (!container) return;
+
+    if (!allStores || allStores.length === 0) {
+      container.innerHTML = '<div style="padding:15px; text-align:center; color:#999;">Inga butiker hittades.</div>';
+      return;
+    }
+
+    let html = '<div class="picker-cat-header">DINA BUTIKER</div>';
+
+    allStores.forEach(st => {
+      const isSelected = String(st.butikId) === String(selectedStoreId);
+      const checkMark = isSelected ? '<span style="color:#28a745; font-weight:bold;">✓</span>' : '';
+      const selectedStyle = isSelected ? 'font-weight:bold;' : '';
+
+      html += `
+        <div class="picker-item-row" style="${selectedStyle}" onclick="selectStoreFromPicker('${st.butikId}')">
+          <span>🏪 ${st.butikNamn}</span>
+          ${checkMark}
+        </div>
+      `;
+    });
+
+    container.innerHTML = html;
+  }
+
+  function selectStoreFromPicker(newStoreId) {
+    closeStorePickerModal();
+    onStoreChange(newStoreId);
+    populateStoreSelectUI();
+  }
+
+  function updateActiveListHeader() {
+    const display = document.getElementById('activeListNameDisplay');
+    const current = allShoppingLists.find(l => l.listaId === selectedListId);
+    if (display) {
+      display.innerText = current ? current.listaNamn : 'Ingen lista vald';
+    }
+  }
+
+  function onStoreChange(newStoreId) {
+    selectedStoreId = newStoreId;
+    localStorage.setItem('selected_store', newStoreId);
+
+    const currentStore = allStores.find(s => String(s.butikId) === String(newStoreId));
+    const avdSort = currentStore ? (currentStore.avdSort || {}) : {};
+
+    currentList.forEach(item => {
+      const aId = String(item.avdId);
+      if (avdSort.hasOwnProperty(aId)) {
+        item.sortering = avdSort[aId];
+      } else {
+        item.sortering = (aId === "0" ? 0 : 999);
+      }
+    });
+
+    sortAndRenderLocalList();
+  }
+
+  function updateModeButtonsState() {
+    const btnPrep = document.getElementById('btnModePrep');
+    const btnShop = document.getElementById('btnModeShop');
+
+    const hasActiveList = !!selectedListId && allShoppingLists.some(l => l.listaId === selectedListId);
+    const hasItems = currentList && currentList.length > 0;
+
+    if (btnPrep) {
+      btnPrep.disabled = !hasActiveList;
+    }
+    if (btnShop) {
+      btnShop.disabled = !hasActiveList || !hasItems;
+    }
+  }
+
+  function setAppMode(mode) {
+    const hasActiveList = !!selectedListId && allShoppingLists.some(l => l.listaId === selectedListId);
+    const hasItems = currentList && currentList.length > 0;
+
+    if (mode === 'prep' && !hasActiveList) {
+      mode = 'lists';
+    } else if (mode === 'shop') {
+      if (!hasActiveList) {
+        mode = 'lists';
+      } else if (!hasItems) {
+        mode = 'prep';
+      }
+    }
+
+    currentMode = mode;
+    localStorage.setItem('app_mode', mode);
+
+    const btnPrep = document.getElementById('btnModePrep');
+    const btnShop = document.getElementById('btnModeShop');
+    const btnLists = document.getElementById('btnModeLists');
+
+    if (btnPrep) btnPrep.classList.toggle('active', mode === 'prep');
+    if (btnShop) btnShop.classList.toggle('active', mode === 'shop');
+    if (btnLists) btnLists.classList.toggle('active', mode === 'lists');
+
+    updateModeButtonsState();
+
+    const activeListHeader = document.getElementById('activeListHeader');
+    const prepSection = document.getElementById('prepSection');
+    const storeSection = document.getElementById('storeSection');
+    const shoppingListCard = document.getElementById('shoppingListCard');
+    const listsSection = document.getElementById('listsSection');
+
+    if (mode === 'lists') {
+      if (activeListHeader) activeListHeader.style.display = 'none';
+      if (prepSection) prepSection.style.display = 'none';
+      if (storeSection) storeSection.style.display = 'none';
+      if (shoppingListCard) shoppingListCard.style.display = 'none';
+      if (listsSection) listsSection.style.display = 'block';
+      renderListsUI();
+    } else {
+      if (activeListHeader) activeListHeader.style.display = 'flex';
+      if (prepSection) prepSection.style.display = (mode === 'prep') ? 'block' : 'none';
+      if (storeSection) storeSection.style.display = (mode === 'shop') ? 'block' : 'none';
+      if (shoppingListCard) shoppingListCard.style.display = 'block';
+      if (listsSection) listsSection.style.display = 'none';
+
+      sortAndRenderLocalList();
+    }
+  }
+
+  // --- SIDOMENY, INSTÄLLNINGAR, TEMA & OM-SIDA ---
+
+  function openSideNav() {
+    const backdrop = document.getElementById('sideNavBackdrop');
+    const drawer = document.getElementById('sideNavDrawer');
+    if (backdrop && drawer) {
+      backdrop.classList.add('active');
+      drawer.classList.add('active');
+    }
+  }
+
+  function closeSideNav() {
+    const backdrop = document.getElementById('sideNavBackdrop');
+    const drawer = document.getElementById('sideNavDrawer');
+    if (backdrop && drawer) {
+      backdrop.classList.remove('active');
+      drawer.classList.remove('active');
+    }
+  }
+
+  function openSettingsModal() {
+    populateSettingsUI();
+    const modal = document.getElementById('settingsModal');
+    if (modal) modal.style.display = 'flex';
+  }
+
+  function closeSettingsModal() {
+    const modal = document.getElementById('settingsModal');
+    if (modal) modal.style.display = 'none';
+  }
+
+  function populateSettingsUI() {
+    populateStoreSelectUI();
+    applySavedTheme();
+  }
+
+  function applySavedTheme() {
+    const savedTheme = localStorage.getItem('app_theme') || 'light';
+    if (savedTheme === 'dark') {
+      document.body.classList.add('dark-theme');
+    } else {
+      document.body.classList.remove('dark-theme');
+    }
+    const themeSelect = document.getElementById('themeSelect');
+    if (themeSelect) themeSelect.value = savedTheme;
+  }
+
+  function onThemeChange(newTheme) {
+    localStorage.setItem('app_theme', newTheme);
+    applySavedTheme();
+  }
+
+  function switchOmTab(tab) {
+    const infoContent = document.getElementById('omTabInfoContent');
+    const helpContent = document.getElementById('omTabHelpContent');
+    const btnInfo = document.getElementById('btnOmTabInfo');
+    const btnHelp = document.getElementById('btnOmTabHelp');
+
+    if (tab === 'info') {
+      if (infoContent) infoContent.style.display = 'block';
+      if (helpContent) helpContent.style.display = 'none';
+      if (btnInfo) { btnInfo.style.background = '#2c3e50'; btnInfo.style.color = 'white'; }
+      if (btnHelp) { btnHelp.style.background = '#f0f0f5'; btnHelp.style.color = '#333'; }
+    } else {
+      if (infoContent) infoContent.style.display = 'none';
+      if (helpContent) helpContent.style.display = 'block';
+      if (btnInfo) { btnInfo.style.background = '#f0f0f5'; btnInfo.style.color = '#333'; }
+      if (btnHelp) { btnHelp.style.background = '#2c3e50'; btnHelp.style.color = 'white'; }
+    }
+  }
+
+  function openOmModal() {
+    closeSettingsModal();
+    switchOmTab('info');
+    
+    const versionText = document.getElementById('omVersionText');
+    if (versionText) {
+      if (window.APP_VERSION_STR && window.APP_VERSION_STR.includes('•')) {
+        versionText.innerText = window.APP_VERSION_STR;
+      } else {
+        google.script.run
+          .withSuccessHandler(function(verStr) {
+            if (versionText) versionText.innerText = verStr;
+          })
+          .getDriveLastUpdated();
+      }
+    }
+
+    const qrImg = document.getElementById('qrCodeImg');
+    if (qrImg) {
+      const appUrl = "https://tegang.github.io/Handling";
+      qrImg.src = 'https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=' + encodeURIComponent(appUrl);
+    }
+
+    const modal = document.getElementById('omModal');
+    if (modal) modal.style.display = 'flex';
+  }
+
+  function closeOmModal() {
+    const modal = document.getElementById('omModal');
+    if (modal) modal.style.display = 'none';
+  }
+
+  function navToSection(section) {
+    closeSideNav();
+    currentNavSection = section;
+
+    document.querySelectorAll('.sidenav-item').forEach(btn => btn.classList.remove('active'));
+
+    const modeSwitcherCard = document.getElementById('modeSwitcherCard');
+    const activeListHeader = document.getElementById('activeListHeader');
+    const prepSection = document.getElementById('prepSection');
+    const storeSection = document.getElementById('storeSection');
+    const shoppingListCard = document.getElementById('shoppingListCard');
+    const listsSection = document.getElementById('listsSection');
+    const storesAdminSection = document.getElementById('storesAdminSection');
+    const avdAdminSection = document.getElementById('avdAdminSection');
+    const varorAdminSection = document.getElementById('varorAdminSection');
+
+    if (modeSwitcherCard) modeSwitcherCard.style.display = 'none';
+    if (activeListHeader) activeListHeader.style.display = 'none';
+    if (prepSection) prepSection.style.display = 'none';
+    if (storeSection) storeSection.style.display = 'none';
+    if (shoppingListCard) shoppingListCard.style.display = 'none';
+    if (listsSection) listsSection.style.display = 'none';
+    if (storesAdminSection) storesAdminSection.style.display = 'none';
+    if (avdAdminSection) avdAdminSection.style.display = 'none';
+    if (varorAdminSection) varorAdminSection.style.display = 'none';
+
+    if (section === 'app') {
+      const activeBtn = document.getElementById('navItemApp');
+      if (activeBtn) activeBtn.classList.add('active');
+
+      if (modeSwitcherCard) modeSwitcherCard.style.display = 'flex';
+      const defaultMode = localStorage.getItem('default_app_mode') || currentMode;
+      setAppMode(defaultMode);
+
+    } else if (section === 'stores') {
+      const activeBtn = document.getElementById('navItemStores');
+      if (activeBtn) activeBtn.classList.add('active');
+
+      if (storesAdminSection) storesAdminSection.style.display = 'block';
+      loadStoresAdminUI();
+
+    } else if (section === 'avd') {
+      const activeBtn = document.getElementById('navItemAvd');
+      if (activeBtn) activeBtn.classList.add('active');
+
+      if (avdAdminSection) avdAdminSection.style.display = 'block';
+      loadAvdAdminUI();
+
+    } else if (section === 'varor') {
+      const activeBtn = document.getElementById('navItemVaror');
+      if (activeBtn) activeBtn.classList.add('active');
+
+      if (varorAdminSection) varorAdminSection.style.display = 'block';
+      loadVarorAdminUI();
+    }
+  }
+
+  // --- LISTOR & HANDLINGSAPP-LOGIK ---
+
+  function renderListsUI() {
+    const container = document.getElementById('allListsContainer');
+    if (!container) return;
+
+    if (!allShoppingLists || allShoppingLists.length === 0) {
+      container.innerHTML = '<p style="text-align:center; color:#999;">Inga handlingslistor finns skapade.</p>';
+      return;
+    }
+
+    let html = '<h3 style="font-size:15px; color:#666; margin-bottom:12px;">Dina handlingslistor:</h3>';
+
+    allShoppingLists.forEach(l => {
+      const isSelected = (l.listaId === selectedListId);
+      const selectedClass = isSelected ? 'selected-list-row' : '';
+
+      html += `
+        <div class="item-row ${selectedClass}" style="cursor: pointer; margin-bottom: 8px; transition: all 0.2s ease;" onclick="selectListAction('${l.listaId}')">
+          <div style="flex: 1;">
+            <strong style="font-size: 16px; color: #2c3e50;">${l.listaNamn}</strong>
+          </div>
+          <div>
+            <button class="delete-btn" onclick="event.stopPropagation(); deleteListAction('${l.listaId}', '${l.listaNamn}')" title="Ta bort lista">🗑️</button>
+          </div>
+        </div>
+      `;
+    });
+
+    container.innerHTML = html;
+  }
+
+  function selectListAction(listaId) {
+    selectedListId = listaId;
+    localStorage.setItem('selected_list_id', selectedListId);
+    updateActiveListHeader();
+    loadList(); 
+  }
+
+  function addListManual() {
+    const input = document.getElementById('newListNameInput');
+    const val = input ? input.value.trim() : '';
+    if (!val) return;
+
+    input.value = '';
+    showLoading(true);
+
+    google.script.run
+      .withSuccessHandler(function(newListId) {
+        showLoading(false);
+        selectedListId = newListId;
+        localStorage.setItem('selected_list_id', selectedListId);
+
+        allShoppingLists.push({
+          listaId: newListId,
+          listaNamn: val,
+          listaKlar: false
+        });
+
+        currentList = [];
+        updateActiveListHeader();
+        renderListsUI();
+        setAppMode('prep');
+      })
+      .withFailureHandler(handleError)
+      .createNewList(val);
+  }
+
+  function deleteListAction(listaId, listaNamn) {
+    customConfirm('Vill du radera hela listan "' + listaNamn + '" och alla dess varor permanent?', function(confirmed) {
+      if (confirmed) {
+        showLoading(true);
+        google.script.run
+          .withSuccessHandler(function() {
+            showLoading(false);
+            if (listaId === selectedListId) {
+              selectedListId = '';
+              localStorage.removeItem('selected_list_id');
+            }
+            initAppBoot();
+          })
+          .withFailureHandler(handleError)
+          .deleteList(listaId);
+      }
+    }, 'Radera lista');
+  }
+
+  function loadList() {
+    if (!selectedListId) return;
+    showLoading(true);
+    google.script.run
+      .withSuccessHandler(function(items) {
+        showLoading(false);
+        currentList = items || [];
+        setAppMode('prep');
+      })
+      .withFailureHandler(function(err) {
+        showLoading(false);
+        customAlert('Kunde inte hämta listan från servern: ' + (err.message || err), 'Fel');
+      })
+      .getShoppingList(selectedStoreId, selectedListId);
+  }
+
+  function sortAndRenderLocalList() {
+    currentList.sort((a, b) => {
+      if (a.klar !== b.klar) return a.klar ? 1 : -1;
+
+      if (currentMode === 'prep') {
+        return a.varaNamn.localeCompare(b.varaNamn, 'sv');
+      }
+
+      return a.sortering - b.sortering;
+    });
+
+    renderList(currentList);
+    updateModeButtonsState();
+  }
+
+  function renderList(items) {
+    const container = document.getElementById('shoppingList');
+    if (!container) return;
+
+    if (!selectedListId || !allShoppingLists || allShoppingLists.length === 0) {
+      container.innerHTML = '<p style="text-align:center; color:#999; padding: 10px;">Ingen aktiv lista. Skapa en ny lista under 📋 <strong>Listor</strong>.</p>';
+      return;
+    }
+
+    if (!items || items.length === 0) {
+      container.innerHTML = '<p style="text-align:center; color:#999;">Handlingslistan är tom!</p>';
+      return;
+    }
+
+    let html = '';
+    items.forEach(item => {
+      const doneClass = item.klar ? 'done' : '';
+      const checked = item.klar ? 'checked' : '';
+      const infoHtml = item.info ? `<span class="item-info">${item.info}</span>` : '';
+      
+      let enhetAntalHtml = '';
+      if (item.antal && String(item.antal).trim() !== '') {
+        const displayStr = item.enhetNamn ? `${item.antal} ${item.enhetNamn}` : `${item.antal}`;
+        enhetAntalHtml = `<span class="item-avd" style="background:#e8f4fd; color:#1a73e8;">${displayStr}</span>`;
+      }
+
+      const isMissingAvd = (!item.avdId || String(item.avdId) === '0');
+      const isPrepMode = (currentMode === 'prep');
+
+      let avdBadgeClass = 'item-avd';
+      if (isMissingAvd) avdBadgeClass += ' missing-avd';
+      if (isPrepMode) avdBadgeClass += ' clickable';
+
+      const avdBadgeText = isMissingAvd ? 'Saknar avdelning ⚠️' : item.avdelningNamn;
+
+      let avdBadgeHtml = '';
+      if (isPrepMode) {
+        avdBadgeHtml = `<span class="${avdBadgeClass}" onclick="event.stopPropagation(); openDeptPickerModal('LIST_ITEM', '${item.handlaId}')" title="Klicka för att ändra avdelning">${avdBadgeText}</span>`;
+      } else {
+        avdBadgeHtml = `<span class="${avdBadgeClass}">${avdBadgeText}</span>`;
+      }
+
+      let bildHtml = '';
+      if (item.bildUrl) {
+        const safeVaraNamn = item.varaNamn.replace(/'/g, "\\'").replace(/"/g, "&quot;");
+        bildHtml = `<img src="${item.bildUrl}" onclick="event.stopPropagation(); openImagePreviewModal('${item.bildUrl}', '${safeVaraNamn}')" style="width:32px; height:32px; object-fit:cover; border-radius:6px; vertical-align:middle; margin-left:6px; cursor:pointer; border:2px solid #1a73e8; padding:1px; background:#ffffff; box-shadow:0 2px 5px rgba(0,0,0,0.18);" title="Klicka för att se bild">`;
+      }
+
+      html += `<div class="item-row ${doneClass}" data-sortering="${item.sortering}">`;
+      html += `<div class="item-left">`;
+
+      if (currentMode === 'shop') {
+        html += `<input type="checkbox" ${checked} onchange="toggleDone('${item.handlaId}', this.checked, this)">`;
+      }
+
+      html += `<div>`;
+      html += `<span class="item-text">${item.varaNamn}</span>`;
+      html += avdBadgeHtml;
+      html += bildHtml;
+      html += enhetAntalHtml;
+      html += infoHtml;
+      html += `</div>`;
+
+      html += `</div>`;
+
+      if (currentMode === 'prep') {
+        html += `<div>`;
+        html += `<button class="delete-btn" onclick="openEditItemModal('${item.handlaId}')" title="Redigera vara">✏️</button>`;
+        html += `<button class="delete-btn" onclick="removeItem('${item.handlaId}', '${item.varaNamn}')" title="Ta bort">🗑️</button>`;
+        html += `</div>`;
+      }
+
+      html += `</div>`;
+    });
+
+    container.innerHTML = html;
+  }
+
+  // --- EGEN SÖKBAR VARUVÄLJARE LOGIK ---
+
+  function openVaraPickerModal() {
+    const searchInput = document.getElementById('pickerSearchInput');
+    if (searchInput) searchInput.value = '';
+    renderVaraPickerList('');
+
+    const modal = document.getElementById('varaPickerModal');
+    if (modal) modal.style.display = 'flex';
+  }
+
+  function closeVaraPickerModal() {
+    const modal = document.getElementById('varaPickerModal');
+    if (modal) modal.style.display = 'none';
+  }
+
+  function filterVaraPickerList(query) {
+    renderVaraPickerList(query);
+  }
+
+  function renderVaraPickerList(searchQuery = '') {
+    const container = document.getElementById('pickerListContainer');
+    if (!container) return;
+
+    const q = searchQuery.toLowerCase().trim();
+    let html = '';
+
+    html += `
+      <div class="picker-item-row picker-new-btn" style="color: #28a745; font-weight: bold; background-color: #f8fff8; border-bottom: 2px solid #e0ffe0;" onclick="selectVaraFromPicker('NEW_VARA')">
+        <span>✍️ + Ny vara (finns ej i listan)...</span>
+      </div>
+    `;
+
+    const deptsMap = new Map();
+    deptsMap.set('0', { name: 'ÖVRIGT', items: [] });
+
+    allDepartments.forEach(d => {
+      deptsMap.set(String(d.avdId), { name: d.avdNamn.toUpperCase(), items: [] });
+    });
+
+    Object.keys(masterVarorMap).forEach(k => {
+      const obj = masterVarorMap[k];
+      const cleanName = k.charAt(0).toUpperCase() + k.slice(1);
+      const aId = String(obj.avdId || '0');
+
+      if (!q || cleanName.toLowerCase().includes(q)) {
+        if (!deptsMap.has(aId)) {
+          deptsMap.set(aId, { name: 'ÖVRIGT', items: [] });
+        }
+        deptsMap.get(aId).items.push(cleanName);
+      }
+    });
+
+    let hasAnyItems = false;
+    deptsMap.forEach((deptObj) => {
+      if (deptObj.items.length > 0) {
+        hasAnyItems = true;
+        deptObj.items.sort((a, b) => a.localeCompare(b, 'sv'));
+
+        html += `<div class="picker-cat-header">${deptObj.name}</div>`;
+        deptObj.items.forEach(itemNamn => {
+          const safeItem = itemNamn.replace(/'/g, "\\'").replace(/"/g, "&quot;");
+          html += `
+            <div class="picker-item-row" onclick="selectVaraFromPicker('${safeItem}')">
+              <span>${itemNamn}</span>
+            </div>
+          `;
+        });
+      }
+    });
+
+    if (!hasAnyItems && q) {
+      html += '<div style="padding:15px; text-align:center; color:#999;">Inga varor matchade din sökning.</div>';
+    }
+
+    container.innerHTML = html;
+  }
+
+  function selectVaraFromPicker(varaName) {
+    const btnText = document.getElementById('selectedVaraBtnText');
+    const newVaraGroup = document.getElementById('newVaraFieldsGroup');
+    const unitDisplay = document.getElementById('editItemUnitDisplay');
+
+    chosenVaraFromPicker = varaName;
+
+    if (varaName === 'NEW_VARA') {
+      if (btnText) btnText.innerText = '✍️ + Ny vara (skapa i databasen)...';
+      if (newVaraGroup) newVaraGroup.style.display = 'block';
+      if (unitDisplay) unitDisplay.innerText = '';
+    } else {
+      if (btnText) btnText.innerText = varaName;
+      if (newVaraGroup) newVaraGroup.style.display = 'none';
+
+      if (masterVarorMap.hasOwnProperty(varaName.toLowerCase())) {
+        const masterObj = masterVarorMap[varaName.toLowerCase()];
+        const uObj = allUnits.find(u => String(u.enhetId) === String(masterObj.enhetId));
+        if (unitDisplay) unitDisplay.innerText = uObj ? uObj.enhetsnamn : '';
+      }
+    }
+
+    closeVaraPickerModal();
+  }
+
+  // --- EGEN AVDELNINGSVÄLJARE ---
+
+  function openDeptPickerModal(context = 'LIST_ITEM', handlaId = '') {
+    deptPickerContext = context;
+
+    const subtitle = document.getElementById('deptPickerSubtitle');
+    let currentVal = '0';
+
+    if (context === 'LIST_ITEM') {
+      currentDeptHandlaId = String(handlaId);
+      const targetItem = currentList.find(i => String(i.handlaId) === String(handlaId));
+      if (!targetItem) return;
+
+      currentDeptVaraNamn = targetItem.varaNamn;
+      currentVal = String(targetItem.avdId || '0');
+
+      if (subtitle) {
+        subtitle.innerText = 'Välj avdelning för ' + targetItem.varaNamn + ':';
+        subtitle.style.display = 'block';
+      }
+    } else if (context === 'MASTER_VARA') {
+      currentVal = String(selectedAvdIdForMaster || '0');
+      if (subtitle) subtitle.style.display = 'none';
+    }
+
+    renderDeptPickerList(currentVal);
+    const modal = document.getElementById('deptPickerModal');
+    if (modal) modal.style.display = 'flex';
+  }
+
+  function closeDeptPickerModal() {
+    const modal = document.getElementById('deptPickerModal');
+    if (modal) modal.style.display = 'none';
+  }
+
+  function renderDeptPickerList(currentSelectedId = '0') {
+    const container = document.getElementById('deptPickerListContainer');
+    if (!container) return;
+
+    let html = '<div class="picker-cat-header">ALLA AVDELNINGAR</div>';
+
+    const isZeroSelected = String(currentSelectedId) === '0';
+    const zeroCheck = isZeroSelected ? '<span style="color:#28a745; font-weight:bold;">✓</span>' : '';
+    html += `
+      <div class="picker-item-row" style="${isZeroSelected ? 'font-weight:bold;' : ''}" onclick="selectDeptFromPicker('0')">
+        <span>Övrigt (Saknar avdelning)</span>
+        ${zeroCheck}
+      </div>
+    `;
+
+    const sortedDepts = [...allDepartments].sort((a, b) => a.avdNamn.localeCompare(b.avdNamn, 'sv'));
+    sortedDepts.forEach(d => {
+      const isSelected = String(d.avdId) === String(currentSelectedId);
+      const checkMark = isSelected ? '<span style="color:#28a745; font-weight:bold;">✓</span>' : '';
+      const selectedStyle = isSelected ? 'font-weight:bold;' : '';
+
+      html += `
+        <div class="picker-item-row" style="${selectedStyle}" onclick="selectDeptFromPicker('${d.avdId}')">
+          <span>${d.avdNamn}</span>
+          ${checkMark}
+        </div>
+      `;
+    });
+
+    container.innerHTML = html;
+  }
+
+  function selectDeptFromPicker(avdId) {
+    closeDeptPickerModal();
+
+    if (deptPickerContext === 'LIST_ITEM') {
+      let targetItem = currentList.find(i => String(i.handlaId) === String(currentDeptHandlaId));
+
+      if (!targetItem && currentDeptVaraNamn) {
+        targetItem = currentList.find(i => i.varaNamn.toLowerCase() === currentDeptVaraNamn.toLowerCase());
+      }
+
+      if (!targetItem) {
+        customAlert('Kunde inte uppdatera avdelningen.', 'Fel');
+        return;
+      }
+
+      let newAvdNamn = 'Övrigt';
+      const selectedDept = allDepartments.find(d => String(d.avdId) === String(avdId));
+      if (selectedDept) newAvdNamn = selectedDept.avdNamn;
+
+      targetItem.avdId = String(avdId);
+      targetItem.avdelningNamn = newAvdNamn;
+      targetItem.userHasSetDept = true;
+
+      const currentStore = allStores.find(s => String(s.butikId) === String(selectedStoreId));
+      const avdSort = currentStore ? (currentStore.avdSort || {}) : {};
+      targetItem.sortering = avdSort.hasOwnProperty(String(avdId)) ? avdSort[String(avdId)] : (avdId === "0" ? 0 : 999);
+
+      sortAndRenderLocalList();
+
+      if (String(targetItem.handlaId).startsWith('temp_')) {
+        targetItem.pendingAvdUpdate = String(avdId);
+      } else {
+        google.script.run
+          .withFailureHandler(handleError)
+          .updateItemAndVaraServer(
+            targetItem.handlaId,
+            targetItem.varaId,
+            targetItem.varaNamn,
+            targetItem.avdId,
+            targetItem.enhetId || '',
+            targetItem.antal || '',
+            targetItem.info || ''
+          );
+      }
+
+    } else if (deptPickerContext === 'MASTER_VARA') {
+      selectedAvdIdForMaster = String(avdId);
+      const btnText = document.getElementById('varorModalAvdBtnText');
+      const dObj = allDepartments.find(d => String(d.avdId) === String(avdId));
+      if (btnText) btnText.innerText = dObj ? dObj.avdNamn : 'Övrigt';
+    }
+  }
+
+  // --- EGEN ENHETSVÄLJARE ---
+
+  function openUnitPickerModal(context = 'MASTER_VARA') {
+    renderUnitPickerList(selectedEnhetIdForMaster);
+    const modal = document.getElementById('unitPickerModal');
+    if (modal) modal.style.display = 'flex';
+  }
+
+  function closeUnitPickerModal() {
+    const modal = document.getElementById('unitPickerModal');
+    if (modal) modal.style.display = 'none';
+  }
+
+  function renderUnitPickerList(currentSelectedId = '') {
+    const container = document.getElementById('unitPickerListContainer');
+    if (!container) return;
+
+    let html = '<div class="picker-cat-header">ALLA ENHETER</div>';
+
+    const isNoneSelected = !currentSelectedId;
+    const noneCheck = isNoneSelected ? '<span style="color:#28a745; font-weight:bold;">✓</span>' : '';
+    html += `
+      <div class="picker-item-row" style="${isNoneSelected ? 'font-weight:bold;' : ''}" onclick="selectUnitFromPicker('')">
+        <span>(Ingen enhet)</span>
+        ${noneCheck}
+      </div>
+    `;
+
+    allUnits.forEach(u => {
+      const isSelected = String(u.enhetId) === String(currentSelectedId);
+      const checkMark = isSelected ? '<span style="color:#28a745; font-weight:bold;">✓</span>' : '';
+      const selectedStyle = isSelected ? 'font-weight:bold;' : '';
+
+      html += `
+        <div class="picker-item-row" style="${selectedStyle}" onclick="selectUnitFromPicker('${u.enhetId}')">
+          <span>${u.enhetsnamn}</span>
+          ${checkMark}
+        </div>
+      `;
+    });
+
+    container.innerHTML = html;
+  }
+
+  function selectUnitFromPicker(enhetId) {
+    selectedEnhetIdForMaster = String(enhetId || '');
+    closeUnitPickerModal();
+
+    const btnText = document.getElementById('varorModalEnhetBtnText');
+    const uObj = allUnits.find(u => String(u.enhetId) === String(enhetId));
+    if (btnText) btnText.innerText = uObj ? uObj.enhetsnamn : '(Ingen enhet)';
+  }
+
+  // --- BILDER OCH FOTOGRAFISKA KNAPPAR ---
+
+  function openImagePreviewModal(imgUrl, varaNamn) {
+    const imgTag = document.getElementById('imagePreviewTag');
+    const titleTag = document.getElementById('imagePreviewTitle');
+    if (imgTag) imgTag.src = imgUrl;
+    if (titleTag) titleTag.innerText = varaNamn;
+    const modal = document.getElementById('imagePreviewModal');
+    if (modal) modal.style.display = 'flex';
+  }
+
+  function closeImagePreviewModal() {
+    const modal = document.getElementById('imagePreviewModal');
+    if (modal) modal.style.display = 'none';
+  }
+
+  function triggerVaraCamera() {
+    const input = document.getElementById('varaCameraInput');
+    if (input) input.click();
+  }
+
+  function onVaraPhotoCaptured(input) {
+    if (!input.files || !input.files[0]) return;
+    const file = input.files[0];
+
+    if (!currentEditingHandlaId) {
+      customAlert('Ingen vara är vald för redigering.', 'Fel');
+      return;
+    }
+
+    if (String(currentEditingHandlaId).startsWith('temp_')) {
+      customAlert('Varan håller på att sparas i databasen. Vänta ett ögonblick och försök igen.', 'Sparas fortfarande');
+      return;
+    }
+
+    const targetItem = currentList.find(i => String(i.handlaId) === String(currentEditingHandlaId));
+    if (!targetItem) {
+      customAlert('Kunde inte hitta varan i listan.', 'Fel');
+      return;
+    }
+
+    showLoading(true);
+
+    const reader = new FileReader();
+    reader.onload = function(e) {
+      const img = new Image();
+      img.onload = function() {
+        const canvas = document.createElement('canvas');
+        let width = img.width;
+        let height = img.height;
+        const maxDim = 500;
+
+        if (width > height) {
+          if (width > maxDim) {
+            height = Math.round((height * maxDim) / width);
+            width = maxDim;
+          }
+        } else {
+          if (height > maxDim) {
+            width = Math.round((width * maxDim) / height);
+            height = maxDim;
+          }
+        }
+
+        canvas.width = width;
+        canvas.height = height;
+        const ctx = canvas.getContext('2d');
+        ctx.drawImage(img, 0, 0, width, height);
+        const compressedBase64 = canvas.toDataURL('image/jpeg', 0.75);
+
+        google.script.run
+          .withSuccessHandler(function(newImgUrl) {
+            showLoading(false);
+            targetItem.bildUrl = newImgUrl;
+            
+            const btnDeletePhoto = document.getElementById('btnDeleteVaraPhoto');
+            if (btnDeletePhoto) btnDeletePhoto.style.display = 'inline-block';
+
+            sortAndRenderLocalList();
+            customAlert('Fotot har sparats på varan!', 'Sparat');
+          })
+          .withFailureHandler(handleError)
+          .saveVaraImageServer(targetItem.handlaId, compressedBase64);
+      };
+      img.src = e.target.result;
+    };
+    reader.readAsDataURL(file);
+  }
+
+  function deleteVaraPhotoAction() {
+    if (!currentEditingHandlaId) return;
+
+    const targetItem = currentList.find(i => String(i.handlaId) === String(currentEditingHandlaId));
+    if (!targetItem || !targetItem.bildUrl) return;
+
+    customConfirm('Vill du ta bort fotot från varan?', function(confirmed) {
+      if (confirmed) {
+        showLoading(true);
+        google.script.run
+          .withSuccessHandler(function() {
+            showLoading(false);
+            targetItem.bildUrl = '';
+            const btnDeletePhoto = document.getElementById('btnDeleteVaraPhoto');
+            if (btnDeletePhoto) btnDeletePhoto.style.display = 'none';
+            sortAndRenderLocalList();
+            customAlert('Fotot har tagits bort!', 'Borttaget');
+          })
+          .withFailureHandler(handleError)
+          .deleteVaraImageServer(currentEditingHandlaId);
+      }
+    }, 'Ta bort foto');
+  }
+
+  // --- MODALER FÖR LÄGG TILL / REDIGERA VARA I LISTA ---
+
+  function openAddItemModal() {
+    currentEditingHandlaId = '';
+    chosenVaraFromPicker = '';
+
+    const modalTitle = document.getElementById('editItemModalTitle');
+    const btnText = document.getElementById('selectedVaraBtnText');
+    const selectGroup = document.getElementById('selectVaraGroup');
+    const newVaraGroup = document.getElementById('newVaraFieldsGroup');
+    const nameInput = document.getElementById('editItemNameInput');
+    const antalInput = document.getElementById('editItemAntalInput');
+    const unitDisplay = document.getElementById('editItemUnitDisplay');
+    const infoInput = document.getElementById('editItemInfoInput');
+    const btnDeletePhoto = document.getElementById('btnDeleteVaraPhoto');
+
+    if (modalTitle) modalTitle.innerText = 'Lägg till vara';
+    if (btnText) btnText.innerText = '-- Välj vara från databasen --';
+    if (nameInput) nameInput.value = '';
+    if (antalInput) antalInput.value = '';
+    if (infoInput) infoInput.value = '';
+    if (unitDisplay) unitDisplay.innerText = '';
+    if (btnDeletePhoto) btnDeletePhoto.style.display = 'none';
+
+    if (selectGroup) selectGroup.style.display = 'block';
+    if (newVaraGroup) newVaraGroup.style.display = 'none';
+
+    const modal = document.getElementById('editItemModal');
+    if (modal) modal.style.display = 'flex';
+  }
+
+  function openEditItemModal(handlaId) {
+    let targetItem = currentList.find(i => String(i.handlaId).trim() === String(handlaId).trim());
+    if (!targetItem) return;
+
+    currentEditingHandlaId = targetItem.handlaId;
+
+    const modalTitle = document.getElementById('editItemModalTitle');
+    const selectGroup = document.getElementById('selectVaraGroup');
+    const newVaraGroup = document.getElementById('newVaraFieldsGroup');
+    const nameInput = document.getElementById('editItemNameInput');
+    const antalInput = document.getElementById('editItemAntalInput');
+    const unitDisplay = document.getElementById('editItemUnitDisplay');
+    const infoInput = document.getElementById('editItemInfoInput');
+    const btnDeletePhoto = document.getElementById('btnDeleteVaraPhoto');
+
+    if (modalTitle) modalTitle.innerText = 'Redigera vara';
+    if (selectGroup) selectGroup.style.display = 'none';
+    if (newVaraGroup) newVaraGroup.style.display = 'block';
+
+    if (nameInput) nameInput.value = targetItem.varaNamn || '';
+    if (antalInput) antalInput.value = targetItem.antal || '';
+    if (infoInput) infoInput.value = targetItem.info || '';
+
+    if (unitDisplay) {
+      unitDisplay.innerText = targetItem.enhetNamn || '';
+    }
+
+    if (btnDeletePhoto) {
+      btnDeletePhoto.style.display = targetItem.bildUrl ? 'inline-block' : 'none';
+    }
+
+    const modal = document.getElementById('editItemModal');
+    if (modal) modal.style.display = 'flex';
+  }
+
+  function closeEditItemModal() {
+    const modal = document.getElementById('editItemModal');
+    if (modal) modal.style.display = 'none';
+  }
+
+  function saveItemFromModal() {
+    const nameInput = document.getElementById('editItemNameInput');
+    const antalInput = document.getElementById('editItemAntalInput');
+    const infoInput = document.getElementById('editItemInfoInput');
+
+    const newAntal = antalInput ? antalInput.value.trim() : '';
+    const newInfo = infoInput ? infoInput.value.trim() : '';
+
+    let chosenName = '';
+    let chosenAvdId = '0';
+
+    // A. LÄGG TILL NY VARA
+    if (!currentEditingHandlaId) {
+      if (!chosenVaraFromPicker) {
+        customAlert('Vänligen välj en vara från databasen eller skapa en ny!', 'Vara saknas');
+        return;
+      }
+
+      if (chosenVaraFromPicker === 'NEW_VARA') {
+        chosenName = nameInput ? nameInput.value.trim() : '';
+        if (!chosenName) {
+          customAlert('Varunamn får inte vara tomt!', 'Fält saknas');
+          return;
+        }
+      } else {
+        chosenName = chosenVaraFromPicker;
+        if (masterVarorMap.hasOwnProperty(chosenName.toLowerCase())) {
+          chosenAvdId = masterVarorMap[chosenName.toLowerCase()].avdId || '0';
+        }
+      }
+
+      const similarMatch = findSimilarItemLocal(chosenName);
+      if (similarMatch) {
+        customAlert('Varan "' + chosenName + '" finns redan på din handlingslista.', 'Varan finns redan');
+        return;
+      }
+
+      closeEditItemModal();
+      executeAddManual(chosenName, newInfo, newAntal, chosenAvdId);
+      return;
+    }
+
+    // B. REDIGERING AV BEFINTLIG VARA
+    let targetItem = currentList.find(i => String(i.handlaId).trim() === String(currentEditingHandlaId).trim());
+
+    if (!targetItem && nameInput) {
+      const searchName = nameInput.value.trim().toLowerCase();
+      targetItem = currentList.find(i => i.varaNamn.trim().toLowerCase() === searchName);
+    }
+
+    if (!targetItem) {
+      customAlert('Kunde inte hitta varan att redigera.', 'Fel');
+      return;
+    }
+
+    chosenName = nameInput ? nameInput.value.trim() : '';
+    if (!chosenName) {
+      customAlert('Varunamn får inte vara tomt!', 'Fält saknas');
+      return;
+    }
+
+    targetItem.varaNamn = capitalizeFirstLetter(chosenName);
+    targetItem.antal = newAntal;
+    targetItem.info = newInfo;
+
+    closeEditItemModal();
+    sortAndRenderLocalList();
+
+    google.script.run
+      .withFailureHandler(handleError)
+      .updateItemAndVaraServer(
+        targetItem.handlaId, 
+        targetItem.varaId, 
+        targetItem.varaNamn, 
+        targetItem.avdId, 
+        targetItem.enhetId || '', 
+        newAntal, 
+        newInfo
+      );
+  }
+
+  function executeAddManual(cleanVal, itemInfo = '', customAntal = '', customAvdId = '0') {
+    cleanVal = capitalizeFirstLetter(cleanVal);
+    const nameKey = cleanVal.toLowerCase();
+
+    let assignedAvdId = customAvdId !== '0' ? customAvdId : '0';
+    let assignedEnhetId = '';
+
+    if (masterVarorMap.hasOwnProperty(nameKey)) {
+      const masterObj = masterVarorMap[nameKey];
+      if (assignedAvdId === '0') assignedAvdId = masterObj.avdId || '0';
+      assignedEnhetId = masterObj.enhetId || '';
+    }
+
+    let avdNamn = 'Övrigt';
+    const dObj = allDepartments.find(d => String(d.avdId) === String(assignedAvdId));
+    if (dObj) avdNamn = dObj.avdNamn;
+
+    let enhetNamn = '';
+    const uObj = allUnits.find(u => String(u.enhetId) === String(assignedEnhetId));
+    if (uObj) enhetNamn = uObj.enhetsnamn;
+
+    const currentStore = allStores.find(s => String(s.butikId) === String(selectedStoreId));
+    const avdSort = currentStore ? (currentStore.avdSort || {}) : {};
+    const sortVal = avdSort.hasOwnProperty(String(assignedAvdId)) ? avdSort[String(assignedAvdId)] : (assignedAvdId === "0" ? 0 : 999);
+
+    const tempHandlaId = 'temp_' + new Date().getTime();
+
+    const newItem = {
+      handlaId: tempHandlaId,
+      listaId: selectedListId,
+      varaId: 'temp_v',
+      varaNamn: cleanVal,
+      avdId: assignedAvdId,
+      avdelningNamn: avdNamn,
+      enhetId: assignedEnhetId,
+      enhetNamn: enhetNamn,
+      bildUrl: '',
+      antal: customAntal,
+      sortering: sortVal,
+      klar: false,
+      info: itemInfo,
+      userHasSetDept: false
+    };
+
+    currentList.push(newItem);
+    sortAndRenderLocalList();
+
+    google.script.run
+      .withSuccessHandler(function(serverItem) {
+        if (serverItem) {
+          const localItem = currentList.find(i => String(i.handlaId) === String(tempHandlaId) || String(i.handlaId) === String(serverItem.handlaId) || i.varaNamn.toLowerCase() === serverItem.varaNamn.toLowerCase());
+          
+          if (localItem) {
+            localItem.handlaId = serverItem.handlaId;
+            localItem.varaId = serverItem.varaId;
+
+            if (String(currentEditingHandlaId) === String(tempHandlaId)) {
+              currentEditingHandlaId = serverItem.handlaId;
+            }
+
+            if (!localItem.userHasSetDept) {
+              localItem.avdId = serverItem.avdId;
+              localItem.avdelningNamn = serverItem.avdelningNamn;
+            }
+
+            localItem.enhetId = serverItem.enhetId;
+            localItem.enhetNamn = serverItem.enhetNamn;
+            if (serverItem.antal) localItem.antal = serverItem.antal;
+
+            if (localItem.pendingAvdUpdate) {
+              const pendingAvd = localItem.pendingAvdUpdate;
+              delete localItem.pendingAvdUpdate;
+              google.script.run
+                .withFailureHandler(handleError)
+                .updateItemAndVaraServer(localItem.handlaId, localItem.varaId, localItem.varaNamn, pendingAvd, localItem.enhetId, localItem.antal, localItem.info);
+            }
+          }
+
+          if (String(currentDeptHandlaId) === String(tempHandlaId)) {
+            currentDeptHandlaId = serverItem.handlaId;
+          }
+
+          sortAndRenderLocalList();
+        }
+      })
+      .withFailureHandler(function(err) {
+        currentList = currentList.filter(i => String(i.handlaId) !== String(tempHandlaId));
+        sortAndRenderLocalList();
+        handleError(err);
+      })
+      .addSingleItem(cleanVal, itemInfo, selectedListId);
+  }
+
+  function findSimilarItemLocal(newItemName) {
+    if (!newItemName || !currentList || currentList.length === 0) return null;
+    const normNew = newItemName.toLowerCase().trim().replace(/(er|ar|or|n|s)$/i, '');
+
+    for (let item of currentList) {
+      if (item.klar) continue;
+      const normExisting = item.varaNamn.toLowerCase().trim().replace(/(er|ar|or|n|s)$/i, '');
+      if (normNew === normExisting) return item.varaNamn;
+      if (normNew.length >= 3 && normExisting.length >= 3) {
+        if (normNew.includes(normExisting) || normExisting.includes(normNew)) {
+          return item.varaNamn;
+        }
+      }
+    }
+    return null;
+  }
+
+  function capitalizeFirstLetter(str) {
+    str = String(str || "").trim();
+    if (!str) return "";
+    return str.charAt(0).toUpperCase() + str.slice(1);
+  }
+
+  function removeItem(handlaId, varaNamn) {
+    customConfirm('Vill du ta bort "' + varaNamn + '" från listan?', function(confirmed) {
+      if (confirmed) {
+        currentList = currentList.filter(item => String(item.handlaId) !== String(handlaId));
+        
+        if (currentList.length === 0 && currentMode === 'shop') {
+          setAppMode('prep');
+        } else {
+          sortAndRenderLocalList();
+        }
+
+        google.script.run
+          .withFailureHandler(function(err) {
+            handleError(err);
+            loadList();
+          })
+          .deleteSingleItem(handlaId);
+      }
+    }, 'Ta bort vara');
+  }
+
+  function toggleDone(handlaId, isDone, checkboxElem) {
+    const targetItem = currentList.find(i => String(i.handlaId) === String(handlaId));
+    if (targetItem) {
+      targetItem.klar = isDone;
+    }
+
+    if (checkboxElem) {
+      const row = checkboxElem.closest('.item-row');
+      const container = document.getElementById('shoppingList');
+
+      if (row && container) {
+        if (isDone) {
+          row.classList.add('done');
+          container.appendChild(row);
+        } else {
+          row.classList.remove('done');
+          const mySort = Number(row.getAttribute('data-sortering')) || 0;
+          const activeRows = Array.from(container.querySelectorAll('.item-row:not(.done)'));
+          const targetRow = activeRows.find(r => {
+            if (r === row) return false;
+            const rSort = Number(r.getAttribute('data-sortering')) || 0;
+            return rSort > mySort;
+          });
+
+          if (targetRow) {
+            container.insertBefore(row, targetRow);
+          } else {
+            const firstDoneRow = container.querySelector('.item-row.done');
+            if (firstDoneRow) {
+              container.insertBefore(row, firstDoneRow);
+            } else {
+              container.appendChild(row);
+            }
+          }
+        }
+      }
+    }
+
+    google.script.run
+      .withFailureHandler(handleError)
+      .toggleItemDone(handlaId, isDone);
+  }
+
+  function uploadImage(input) {
+    if (!input.files || !input.files[0]) return;
+    
+    const file = input.files[0];
+    showLoading(true);
+
+    const reader = new FileReader();
+    reader.onload = function(e) {
+      const img = new Image();
+      img.onload = function() {
+        const canvas = document.createElement('canvas');
+        let width = img.width;
+        let height = img.height;
+        const maxDim = 1000;
+
+        if (width > height) {
+          if (width > maxDim) {
+            height = Math.round((height * maxDim) / width);
+            width = maxDim;
+          }
+        } else {
+          if (height > maxDim) {
+            width = Math.round((width * maxDim) / height);
+            height = maxDim;
+          }
+        }
+
+        canvas.width = width;
+        canvas.height = height;
+
+        const ctx = canvas.getContext('2d');
+        ctx.imageSmoothingQuality = 'medium';
+        ctx.drawImage(img, 0, 0, width, height);
+
+        const compressedBase64 = canvas.toDataURL('image/jpeg', 0.70);
+
+        google.script.run
+          .withSuccessHandler(function(result) {
+            showLoading(false);
+
+            const parsedCount = (typeof result === 'object') ? result.parsedCount : (result || 0);
+            const createdCount = (typeof result === 'object') ? result.createdCount : (result || 0);
+
+            if (parsedCount === 0) {
+              customAlert('Inga varor hittades på ditt foto av tavlan.', 'Inga varor hittades');
+            } else if (createdCount > 0) {
+              loadList();
+              customAlert('AI lade till ' + createdCount + ' ny(a) vara/varor på listan!', 'Tavla avläst');
+            } else {
+              customAlert('Alla varor från tavlan fanns redan i din handlingslista.', 'Inga nya varor');
+            }
+          })
+          .withFailureHandler(handleError)
+          .processWhiteboardImage(compressedBase64, selectedListId);
+      };
+      img.src = e.target.result;
+    };
+    reader.readAsDataURL(file);
+  }
+
+  // --- BUTIKSHANTERING ---
+
+  function loadStoresAdminUI() {
+    document.getElementById('storesListView').style.display = 'block';
+    document.getElementById('storeDeptSortView').style.display = 'none';
+    renderStoresAdminList();
+  }
+
+  function renderStoresAdminList() {
+    const container = document.getElementById('storesAdminList');
+    if (!container) return;
+
+    if (!allStores || allStores.length === 0) {
+      container.innerHTML = '<p style="color:#999; text-align:center;">Inga butiker finns registrerade.</p>';
+      return;
+    }
+
+    let html = '';
+    allStores.forEach(st => {
+      const safeName = st.butikNamn.replace(/'/g, "\\'");
+      let namePart = st.rawNamn || st.butikNamn;
+      let platsPart = st.butikPlats || '';
+
+      if (st.butikNamn.includes(' • ')) {
+        const parts = st.butikNamn.split(' • ');
+        namePart = parts[0];
+        platsPart = parts[1];
+      }
+
+      const platsHtml = platsPart ? `<div style="font-size: 14px; color: #666; margin-top: 2px;">${platsPart}</div>` : '';
+
+      html += `
+        <div class="item-row" style="padding: 10px; margin-bottom: 8px; border-radius: 8px; background: white; border: 1px solid #eee;">
+          <div>
+            <strong style="font-size: 16px; color: #2c3e50;">${namePart}</strong>
+            ${platsHtml}
+          </div>
+          <div style="display: flex; gap: 6px;">
+            <button class="delete-btn" onclick="openStoreDeptSort('${st.butikId}', '${safeName}')" title="Ordna avdelningar">🗺️ Layout</button>
+            <button class="delete-btn" onclick="openEditStoreModal('${st.butikId}', '${safeName}')" title="Redigera">✏️</button>
+            <button class="delete-btn" onclick="deleteStoreAction('${st.butikId}', '${safeName}')" title="Radera">🗑️</button>
+          </div>
+        </div>
+      `;
+    });
+
+    container.innerHTML = html;
+  }
+
+  function openEditStoreModal(butikId = '', currentFullName = '') {
+    currentEditingButikId = butikId;
+    
+    let currentNamn = '';
+    let currentPlats = '';
+
+    if (currentFullName.includes(' • ')) {
+      const parts = currentFullName.split(' • ');
+      currentNamn = parts[0];
+      currentPlats = parts[1];
+    } else {
+      currentNamn = currentFullName;
+    }
+
+    const modalTitle = document.getElementById('storeModalTitle');
+    const nameInput = document.getElementById('storeModalName');
+    const platsInput = document.getElementById('storeModalPlats');
+
+    if (modalTitle) modalTitle.innerText = butikId ? 'Redigera butik' : 'Ny butik';
+    if (nameInput) nameInput.value = currentNamn;
+    if (platsInput) platsInput.value = currentPlats;
+
+    const modal = document.getElementById('storeModal');
+    if (modal) modal.style.display = 'flex';
+  }
+
+  function closeStoreModal() {
+    const modal = document.getElementById('storeModal');
+    if (modal) modal.style.display = 'none';
+  }
+
+  function saveStoreFromModal() {
+    const nameInput = document.getElementById('storeModalName');
+    const platsInput = document.getElementById('storeModalPlats');
+
+    const newNamn = nameInput ? nameInput.value.trim() : '';
+    const newPlats = platsInput ? platsInput.value.trim() : '';
+
+    if (!newNamn || !newPlats) {
+      customAlert('Både Butiksnamn och Butiksplats/Ort måste fyllas i!', 'Fält saknas');
+      return;
+    }
+
+    closeStoreModal();
+    showLoading(true);
+
+    google.script.run
+      .withSuccessHandler(function() {
+        initAppBoot();
+      })
+      .withFailureHandler(handleError)
+      .saveStoreServer(currentEditingButikId, newNamn, newPlats);
+  }
+
+  function deleteStoreAction(butikId, butikNamn) {
+    customConfirm('Vill du radera butiken "' + butikNamn + '" permanent?', function(confirmed) {
+      if (confirmed) {
+        showLoading(true);
+        google.script.run
+          .withSuccessHandler(function() {
+            showLoading(false);
+            if (activeSortingButikId === butikId) {
+              activeSortingButikId = null;
+            }
+            initAppBoot();
+          })
+          .withFailureHandler(handleError)
+          .deleteStoreServer(butikId);
+      }
+    }, 'Radera butik');
+  }
+
+  function openStoreDeptSort(butikId, fullStoreName) {
+    activeSortingButikId = butikId;
+    isDeptOrderChanged = false;
+
+    document.getElementById('storesListView').style.display = 'none';
+    document.getElementById('storeDeptSortView').style.display = 'block';
+
+    const subtitle = document.getElementById('sortStoreSubtitle');
+    if (subtitle) subtitle.innerText = fullStoreName;
+
+    updateSaveDeptBtnState();
+    showLoading(true);
+
+    google.script.run
+      .withSuccessHandler(function(depts) {
+        showLoading(false);
+        currentStoreDepts = depts || [];
+        
+        initialDeptOrder = currentStoreDepts.map(d => String(d.avdId));
+        isDeptOrderChanged = false;
+        updateSaveDeptBtnState();
+        renderDeptSortList();
+      })
+      .withFailureHandler(handleError)
+      .getStoreDepartmentsServer(butikId);
+  }
+
+  function closeStoreDeptSort() {
+    if (isDeptOrderChanged) {
+      customConfirm('Du har osparade ändringar i avdelningsordningen. Vill du lämna utan att spara?', function(confirmed) {
+        if (confirmed) {
+          isDeptOrderChanged = false;
+          loadStoresAdminUI();
+        }
+      }, 'Osparade ändringar');
+    } else {
+      loadStoresAdminUI();
+    }
+  }
+
+  function renderDeptSortList() {
+    const container = document.getElementById('deptSortContainer');
+    if (!container) return;
+
+    if (!currentStoreDepts || currentStoreDepts.length === 0) {
+      container.innerHTML = '<p style="color:#999; text-align:center;">Inga avdelningar hittades.</p>';
+      return;
+    }
+
+    let html = '';
+    currentStoreDepts.forEach((d, idx) => {
+      const isFirst = (idx === 0);
+      const isLast = (idx === currentStoreDepts.length - 1);
+
+      html += `
+        <div class="sort-row">
+          <span style="font-weight: 600; font-size: 15px; color: #2c3e50;">${idx + 1}. ${d.avdNamn}</span>
+          <div style="display:flex; gap:6px;">
+            <button class="sort-btn" ${isFirst ? 'disabled' : ''} onclick="moveDeptInList(${idx}, -1)">▲</button>
+            <button class="sort-btn" ${isLast ? 'disabled' : ''} onclick="moveDeptInList(${idx}, 1)">▼</button>
+          </div>
+        </div>
+      `;
+    });
+
+    container.innerHTML = html;
+  }
+
+  function isDeptOrderModified() {
+    if (!initialDeptOrder || !currentStoreDepts) return false;
+    if (initialDeptOrder.length !== currentStoreDepts.length) return true;
+
+    for (let i = 0; i < initialDeptOrder.length; i++) {
+      if (String(initialDeptOrder[i]) !== String(currentStoreDepts[i].avdId)) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  function moveDeptInList(index, direction) {
+    const targetIndex = index + direction;
+    if (targetIndex < 0 || targetIndex >= currentStoreDepts.length) return;
+
+    const temp = currentStoreDepts[index];
+    currentStoreDepts[index] = currentStoreDepts[targetIndex];
+    currentStoreDepts[targetIndex] = temp;
+
+    isDeptOrderChanged = isDeptOrderModified();
+    updateSaveDeptBtnState();
+    renderDeptSortList();
+  }
+
+  function updateSaveDeptBtnState() {
+    const btn = document.getElementById('btnSaveDeptOrder');
+    if (btn) {
+      btn.disabled = !isDeptOrderChanged;
+    }
+  }
+
+  function saveStoreDepartmentOrderAction() {
+    if (!activeSortingButikId || !currentStoreDepts || !isDeptOrderChanged) return;
+
+    const orderedAvdIds = currentStoreDepts.map(d => d.avdId);
+
+    initialDeptOrder = currentStoreDepts.map(d => String(d.avdId));
+    isDeptOrderChanged = false;
+    updateSaveDeptBtnState();
+
+    const newAvdSort = {};
+    orderedAvdIds.forEach((avdId, index) => {
+      newAvdSort[avdId] = index + 1;
+    });
+
+    const storeInMem = allStores.find(s => String(s.butikId) === String(activeSortingButikId));
+    if (storeInMem) {
+      storeInMem.avdSort = newAvdSort;
+    }
+
+    if (String(activeSortingButikId) === String(selectedStoreId)) {
+      currentList.forEach(item => {
+        const aId = String(item.avdId);
+        if (newAvdSort.hasOwnProperty(aId)) {
+          item.sortering = newAvdSort[aId];
+        } else {
+          item.sortering = (aId === "0" ? 0 : 999);
+        }
+      });
+    }
+
+    customAlert('Avdelningsordningen har sparats!', 'Sparat');
+
+    google.script.run
+      .withFailureHandler(handleError)
+      .saveStoreDepartmentOrderServer(activeSortingButikId, orderedAvdIds);
+  }
+
+  // --- AVDELNINGSHANTERING ---
+
+  function loadAvdAdminUI() {
+    renderAvdAdminList();
+  }
+
+  function renderAvdAdminList() {
+    const container = document.getElementById('avdAdminList');
+    if (!container) return;
+
+    if (!allDepartments || allDepartments.length === 0) {
+      container.innerHTML = '<p style="color:#999; text-align:center;">Inga avdelningar finns registrerade.</p>';
+      return;
+    }
+
+    const sortedDepts = [...allDepartments].sort((a, b) => {
+      const nameA = String(a.avdNamn || '');
+      const nameB = String(b.avdNamn || '');
+      return nameA.localeCompare(nameB, 'sv');
+    });
+
+    let html = '';
+    sortedDepts.forEach(a => {
+      const nameStr = String(a.avdNamn || '');
+      const safeName = nameStr.replace(/'/g, "\\'").replace(/"/g, "&quot;");
+
+      html += `
+        <div class="item-row" style="padding: 10px; margin-bottom: 8px; border-radius: 8px; background: white; border: 1px solid #eee;">
+          <div>
+            <strong style="font-size: 16px; color: #2c3e50;">${nameStr}</strong>
+          </div>
+          <div style="display: flex; gap: 6px;">
+            <button class="delete-btn" onclick="openEditAvdModal('${a.avdId}', '${safeName}')" title="Redigera">✏️</button>
+            <button class="delete-btn" onclick="deleteAvdAction('${a.avdId}', '${safeName}')" title="Radera">🗑️</button>
+          </div>
+        </div>
+      `;
+    });
+
+    container.innerHTML = html;
+  }
+
+  function openEditAvdModal(avdId = '', currentNamn = '') {
+    currentEditingAvdId = avdId;
+    originalAvdNamn = currentNamn;
+
+    const modalTitle = document.getElementById('avdModalTitle');
+    const nameInput = document.getElementById('avdModalName');
+
+    if (modalTitle) modalTitle.innerText = avdId ? 'Redigera avdelning' : 'Ny avdelning';
+    if (nameInput) nameInput.value = currentNamn;
+
+    const modal = document.getElementById('avdModal');
+    if (modal) modal.style.display = 'flex';
+  }
+
+  function closeAvdModal() {
+    const modal = document.getElementById('avdModal');
+    if (modal) modal.style.display = 'none';
+  }
+
+  function saveAvdFromModal() {
+    const nameInput = document.getElementById('avdModalName');
+    const newNamn = nameInput ? nameInput.value.trim() : '';
+
+    if (!newNamn) {
+      customAlert('Avdelningsnamn får inte vara tomt!', 'Fält saknas');
+      return;
+    }
+
+    const cleanName = capitalizeFirstLetter(newNamn);
+
+    if (currentEditingAvdId) {
+      const targetAvd = allDepartments.find(a => String(a.avdId).trim() === String(currentEditingAvdId).trim());
+      if (targetAvd) {
+        targetAvd.avdNamn = cleanName;
+      }
+    } else {
+      const tempId = 'temp_' + new Date().getTime();
+      allDepartments.push({
+        avdId: tempId,
+        avdNamn: cleanName
+      });
+    }
+
+    closeAvdModal();
+    renderAvdAdminList();
+
+    google.script.run
+      .withSuccessHandler(function(returnedAvdId) {
+        if (returnedAvdId) {
+          const targetAvd = allDepartments.find(a => String(a.avdId) === String(currentEditingAvdId) || a.avdNamn.toLowerCase() === cleanName.toLowerCase());
+          if (targetAvd) {
+            targetAvd.avdId = returnedAvdId;
+            renderAvdAdminList();
+          }
+        }
+      })
+      .withFailureHandler(handleError)
+      .saveDepartmentServer(currentEditingAvdId, cleanName);
+  }
+
+  function deleteAvdAction(avdId, avdNamn) {
+    customConfirm('Vill du radera avdelningen "' + avdNamn + '" permanent?', function(confirmed) {
+      if (confirmed) {
+        showLoading(true);
+
+        google.script.run
+          .withSuccessHandler(function(refCheck) {
+            showLoading(false);
+
+            if (refCheck.isReferenced) {
+              let exampleText = refCheck.examples.length > 0 ? '\n\nKopplade varor (exempel): ' + refCheck.examples.join(', ') : '';
+              customAlert(
+                'Avdelningen "' + avdNamn + '" kan inte raderas eftersom det finns ' + refCheck.count + ' vara/varor i databasen som är kopplade till den.' + exampleText + '\n\nÄndra avdelning på varorna i databasen först om du vill ta bort denna avdelning.',
+                'Integritetsskydd'
+              );
+              return;
+            }
+
+            allDepartments = allDepartments.filter(a => String(a.avdId).trim() !== String(avdId).trim());
+            renderAvdAdminList();
+
+            google.script.run
+              .withFailureHandler(handleError)
+              .deleteDepartmentServer(avdId);
+          })
+          .withFailureHandler(handleError)
+          .checkDepartmentReferencesServer(avdId);
+      }
+    }, 'Radera avdelning');
+  }
+
+  // --- VARUDATABAS (BLIXTSNABB LOKAL HANTERING) ---
+
+  function buildMasterVarorListFromMemory() {
+    const list = [];
+    const avdMap = new Map();
+    allDepartments.forEach(d => avdMap.set(String(d.avdId), d.avdNamn));
+
+    const enhetMap = new Map();
+    allUnits.forEach(u => enhetMap.set(String(u.enhetId), u.enhetsnamn));
+
+    Object.keys(masterVarorMap).forEach(key => {
+      const v = masterVarorMap[key];
+      const nameCap = v.varaNamn || (key.charAt(0).toUpperCase() + key.slice(1));
+      
+      list.push({
+        varaId: v.varaId || key,
+        varaNamn: nameCap,
+        avdId: String(v.avdId || '0'),
+        avdelningNamn: avdMap.get(String(v.avdId)) || 'Övrigt',
+        enhetId: String(v.enhetId || ''),
+        enhetNamn: v.enhetId ? (enhetMap.get(String(v.enhetId)) || v.enhetId) : ''
+      });
+    });
+
+    return list;
+  }
+
+  function loadVarorAdminUI() {
+    allMasterVarorList = buildMasterVarorListFromMemory();
+    renderVarorAdminList();
+  }
+
+  function onVarorSearch(query) {
+    renderVarorAdminList(query);
+  }
+
+  function renderVarorAdminList(searchQuery = '') {
+    const container = document.getElementById('varorAdminList');
+    if (!container) return;
+
+    if (!allMasterVarorList || allMasterVarorList.length === 0) {
+      container.innerHTML = '<p style="color:#999; text-align:center;">Inga varor finns i databasen.</p>';
+      return;
+    }
+
+    const searchInput = document.getElementById('varorSearchInput');
+    const q = (searchQuery || (searchInput ? searchInput.value : '')).toLowerCase().trim();
+
+    let filtered = allMasterVarorList.filter(v => {
+      if (!q) return true;
+      return (v.varaNamn.toLowerCase().includes(q) || v.avdelningNamn.toLowerCase().includes(q) || (v.enhetNamn && v.enhetNamn.toLowerCase().includes(q)));
+    });
+
+    filtered.sort((a, b) => a.varaNamn.localeCompare(b.varaNamn, 'sv'));
+
+    if (filtered.length === 0) {
+      container.innerHTML = '<p style="color:#999; text-align:center;">Inga varor matchade din sökning.</p>';
+      return;
+    }
+
+    let html = `<p style="font-size:12px; color:#777; margin-bottom:10px;">Visar ${filtered.length} av ${allMasterVarorList.length} varor:</p>`;
+
+    filtered.forEach(v => {
+      const safeName = v.varaNamn.replace(/'/g, "\\'").replace(/"/g, "&quot;");
+      const enhetBadge = v.enhetNamn ? `<span class="item-avd" style="background:#e8f4fd; color:#1a73e8;">${v.enhetNamn}</span>` : '';
+
+      html += `
+        <div class="item-row" style="padding: 10px; margin-bottom: 8px; border-radius: 8px; background: white; border: 1px solid #eee;">
+          <div>
+            <strong style="font-size: 16px; color: #2c3e50;">${v.varaNamn}</strong>
+            <div style="margin-top: 4px;">
+              <span class="item-avd">${v.avdelningNamn}</span>
+              ${enhetBadge}
+            </div>
+          </div>
+          <div style="display: flex; gap: 6px;">
+            <button class="delete-btn" onclick="openEditMasterVaraModal('${v.varaId}', '${safeName}', '${v.avdId}', '${v.enhetId}')" title="Redigera">✏️</button>
+            <button class="delete-btn" onclick="deleteMasterVaraAction('${v.varaId}', '${safeName}')" title="Radera">🗑️</button>
+          </div>
+        </div>
+      `;
+    });
+
+    container.innerHTML = html;
+  }
+
+  function openEditMasterVaraModal(varaId = '', varaNamn = '', avdId = '0', enhetId = '') {
+    currentEditingMasterVaraId = varaId;
+    originalMasterVaraNamn = varaNamn;
+    selectedAvdIdForMaster = String(avdId || '0');
+    selectedEnhetIdForMaster = String(enhetId || '');
+
+    const modalTitle = document.getElementById('varorModalTitle');
+    const nameInput = document.getElementById('varorModalName');
+    const avdBtnText = document.getElementById('varorModalAvdBtnText');
+    const enhetBtnText = document.getElementById('varorModalEnhetBtnText');
+
+    if (modalTitle) modalTitle.innerText = varaId ? 'Redigera vara' : 'Ny vara';
+    if (nameInput) nameInput.value = varaNamn;
+
+    const dObj = allDepartments.find(d => String(d.avdId) === String(selectedAvdIdForMaster));
+    if (avdBtnText) avdBtnText.innerText = dObj ? dObj.avdNamn : 'Övrigt';
+
+    const uObj = allUnits.find(u => String(u.enhetId) === String(selectedEnhetIdForMaster));
+    if (enhetBtnText) enhetBtnText.innerText = uObj ? uObj.enhetsnamn : '(Ingen enhet)';
+
+    const modal = document.getElementById('varorModal');
+    if (modal) modal.style.display = 'flex';
+  }
+
+  function closeVarorModal() {
+    const modal = document.getElementById('varorModal');
+    if (modal) modal.style.display = 'none';
+  }
+
+  function saveMasterVaraFromModal() {
+    const nameInput = document.getElementById('varorModalName');
+    const newNamn = nameInput ? nameInput.value.trim() : '';
+
+    if (!newNamn) {
+      customAlert('Varunamn får inte vara tomt!', 'Fält saknas');
+      return;
+    }
+
+    const cleanName = capitalizeFirstLetter(newNamn);
+    const newKey = cleanName.toLowerCase();
+
+    if (originalMasterVaraNamn) {
+      const oldKey = originalMasterVaraNamn.toLowerCase();
+      delete masterVarorMap[oldKey];
+    }
+    
+    if (currentEditingMasterVaraId) {
+      for (let k in masterVarorMap) {
+        if (String(masterVarorMap[k].varaId).trim() === String(currentEditingMasterVaraId).trim()) {
+          delete masterVarorMap[k];
+          break;
+        }
+      }
+    }
+
+    const assignedVaraId = currentEditingMasterVaraId || ('temp_' + new Date().getTime());
+    masterVarorMap[newKey] = {
+      varaId: assignedVaraId,
+      varaNamn: cleanName,
+      avdId: selectedAvdIdForMaster,
+      enhetId: selectedEnhetIdForMaster
+    };
+
+    closeVarorModal();
+    loadVarorAdminUI();
+
+    google.script.run
+      .withSuccessHandler(function(returnedVaraId) {
+        if (returnedVaraId && masterVarorMap[newKey]) {
+          masterVarorMap[newKey].varaId = returnedVaraId;
+          loadVarorAdminUI();
+        }
+      })
+      .withFailureHandler(handleError)
+      .saveMasterVaraServer(currentEditingMasterVaraId, cleanName, selectedAvdIdForMaster, selectedEnhetIdForMaster);
+  }
+
+  function deleteMasterVaraAction(varaId, varaNamn) {
+    customConfirm('Vill du radera varan "' + varaNamn + '" permanent från databasen?', function(confirmed) {
+      if (confirmed) {
+        showLoading(true);
+
+        google.script.run
+          .withSuccessHandler(function(refCheck) {
+            showLoading(false);
+
+            if (refCheck.isReferenced) {
+              let listText = refCheck.listNames.length > 0 ? '\n\nFinns på lista/listor: ' + refCheck.listNames.join(', ') : '';
+              customAlert(
+                'Varan "' + varaNamn + '" kan inte raderas från databasen eftersom den används på ' + refCheck.count + ' rad(er) i dina handlingslistor.' + listText + '\n\nTa bort varan från handlingslistorna först om du vill ta bort den helt från databasen.',
+                'Integritetsskydd'
+              );
+              return;
+            }
+
+            for (let k in masterVarorMap) {
+              if (String(masterVarorMap[k].varaId) === String(varaId)) {
+                delete masterVarorMap[k];
+                break;
+              }
+            }
+
+            loadVarorAdminUI();
+
+            google.script.run
+              .withFailureHandler(handleError)
+              .deleteMasterVaraServer(varaId);
+          })
+          .withFailureHandler(handleError)
+          .checkVaraReferencesServer(varaId);
+      }
+    }, 'Radera vara');
+  }
+</script>

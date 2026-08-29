@@ -1,0 +1,78 @@
+<script>
+  // Styr den tysta globala spinnern
+  function showLoading(show) {
+    const overlay = document.getElementById('loadingOverlay');
+    if (overlay) {
+      overlay.style.display = show ? 'flex' : 'none';
+    }
+  }
+
+  // Egen Alert (Enkel blå OK-knapp)
+  function customAlert(message, title = 'Meddelande', onOk) {
+    const modal = document.getElementById('customModal');
+    document.getElementById('modalTitle').innerText = title;
+    document.getElementById('modalMessage').innerText = message;
+
+    const btnContainer = document.getElementById('modalButtons');
+    btnContainer.innerHTML = '';
+
+    const okBtn = document.createElement('button');
+    okBtn.innerText = 'OK';
+    okBtn.className = 'btn-blue';
+    okBtn.onclick = function() {
+      closeModal();
+      if (onOk) onOk();
+    };
+    btnContainer.appendChild(okBtn);
+
+    modal.style.display = 'flex';
+  }
+
+  // Egen Confirm (Blå OK-knapp och grå Avbryt)
+  function customConfirm(message, onResult, title = 'Bekräfta') {
+    const modal = document.getElementById('customModal');
+    document.getElementById('modalTitle').innerText = title;
+    document.getElementById('modalMessage').innerText = message;
+
+    const btnContainer = document.getElementById('modalButtons');
+    btnContainer.innerHTML = '';
+
+    const cancelBtn = document.createElement('button');
+    cancelBtn.innerText = 'Avbryt';
+    cancelBtn.className = 'secondary';
+    cancelBtn.onclick = function() {
+      closeModal();
+      if (onResult) onResult(false);
+    };
+
+    const okBtn = document.createElement('button');
+    okBtn.innerText = 'OK';
+    okBtn.className = 'btn-blue';
+    okBtn.onclick = function() {
+      closeModal();
+      if (onResult) onResult(true);
+    };
+
+    btnContainer.appendChild(cancelBtn);
+    btnContainer.appendChild(okBtn);
+
+    modal.style.display = 'flex';
+  }
+
+  function closeModal() {
+    const modal = document.getElementById('customModal');
+    if (modal) modal.style.display = 'none';
+  }
+
+  function handleError(err) {
+    showLoading(false);
+    customAlert(err.message || err, 'Ett fel uppstod');
+  }
+
+  // Försök låsa skärmen till porträttläge om mobilen stödjer det
+  try {
+    if (screen.orientation && screen.orientation.lock) {
+      screen.orientation.lock('portrait').catch(function() {});
+    }
+  } catch (e) {}
+</script>
