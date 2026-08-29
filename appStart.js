@@ -3,7 +3,7 @@
 // =========================================================================
 
 var APP_VERSION = "1.2"; 
-var APP_BUILD_TIME = "2026-08-29 13:46"; 
+var APP_BUILD_TIME = "2026-08-29 14:18"; 
 
 function doGet(e) {
   var template = HtmlService.createTemplateFromFile('Index');
