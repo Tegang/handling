@@ -1,7 +1,7 @@
 // =========================================================================
 // SERVERHANDLING.GS - Serverkod för listor, butiker, AI, bilder och databas
 // =========================================================================
-
+ 
 function capitalizeFirstLetter(str) {
   str = String(str || "").trim();
   if (!str) return "";

@@ -1,7 +1,7 @@
 // =========================================================================
 // BACKUP.GS - Källkodsexport till Google Drive
 // =========================================================================
-
+ 
 var MIN_KOMMENTAR = "innan GitHub repository";
 
 function exporteraKodTillDrive() {
